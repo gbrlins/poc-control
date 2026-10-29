@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import ARRAY, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY as PGArray
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -50,8 +51,9 @@ class Procedimento(Base):
     html_original: Mapped[str] = mapped_column(Text, nullable=False)
     # Taxonomia fixa (app/categorias.py) -- um procedimento pode cobrir mais de uma área (ex.: o
     # seed de Vault é K8S e SEC). Usado para restringir a busca vetorial por afinidade antes de
-    # rankear por similaridade (classificacao/service.py::_buscar_candidatos).
-    categorias: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    # rankear por similaridade (classificacao/service.py::_buscar_candidatos). PGArray (não o
+    # ARRAY genérico usado em `tags`) porque só o comparator do dialeto Postgres tem `.overlap()`.
+    categorias: Mapped[list[str]] = mapped_column(PGArray(String), default=list)
     criado_por_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

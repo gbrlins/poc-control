@@ -289,16 +289,17 @@ def test_procedimento_mesmas_regras_e_vinculos_viram_null(db, usuarios):
     db.commit()
     proc_id, item_id, rfi_item_id = proc.id, item.id, rfi_item.id
 
-    c = como(alice)
-    assert c.request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": "errado"}).status_code == 400
+    # como() sobrescreve app.dependency_overrides (estado global do app) -- chamar de novo pra cada request,
+    # nunca reaproveitar um client guardado numa variável entre chamadas de usuários diferentes (ver test_rfi_mesmas_regras).
+    assert como(alice).request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": "errado"}).status_code == 400
     assert como(bob).request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": proc.titulo}).status_code == 403
 
-    prev = c.get(f"/api/procedimentos/{proc_id}/exclusao").json()
+    prev = como(alice).get(f"/api/procedimentos/{proc_id}/exclusao").json()
     assert prev["podeExcluir"] is True and prev["contagens"]["vinculos"] >= 1
     vinculos = {v["id"] for v in prev["vinculosQuePerdemProcedimento"]}
     assert str(poc.id) in vinculos and str(rfi.id) in vinculos
 
-    assert c.request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": proc.titulo}).status_code == 204
+    assert como(alice).request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": proc.titulo}).status_code == 204
     db.expire_all()
     assert db.get(Procedimento, proc_id) is None
     assert db.get(Item, item_id) is not None, "a PoC continua existindo"
