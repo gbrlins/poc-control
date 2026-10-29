@@ -20,16 +20,19 @@ PROCEDIMENTOS = [
         "arquivo": "argo-cd-k3s.html",
         "titulo": "Argo CD do cliente → k3s: roteiro da sessão",
         "tags": ["Argo CD", "k3s", "OpenShift", "GitOps"],
+        "categorias": ["K8S"],
     },
     {
         "arquivo": "hpa-nginx-k3s-ingress.html",
         "titulo": "HPA em nginx no k3s, com Ingress",
         "tags": ["k3s", "HPA", "Ingress", "Traefik", "Rancher"],
+        "categorias": ["K8S"],
     },
     {
         "arquivo": "vault-k3s-integracao.html",
         "titulo": "Integração do k3s com Vault externo",
         "tags": ["k3s", "Vault", "HashiCorp Vault", "Kubernetes Auth"],
+        "categorias": ["K8S", "SEC"],
     },
 ]
 
@@ -49,6 +52,7 @@ def main() -> None:
             procedimento = Procedimento(
                 titulo=item["titulo"],
                 tags=item["tags"],
+                categorias=item["categorias"],
                 cliente_origem="Sefaz-RJ",
                 data_origem=None,
                 status=StatusProcedimento.validado,

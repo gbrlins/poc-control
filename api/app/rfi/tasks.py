@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from app.categorias import normalizar as normalizar_categoria
 from app.db import SessionLocal
 from app.gemini import extrair_itens_rfi, interpretar_erro_gemini, modelo_efetivo
 from app.models import Rfi, RfiItem, StatusExtracao
@@ -50,6 +51,7 @@ def processar_rfi(
                 rfi_id=rfi.id,
                 codigo=item.codigo,
                 categoria=item.categoria or None,
+                categoria_codigo=normalizar_categoria(item.categoria_codigo),
                 descricao=item.descricao,
                 ordem=i,
             )

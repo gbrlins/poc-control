@@ -42,11 +42,14 @@ export interface ProcedimentoListItem {
   id: string;
   titulo: string;
   tags: string[];
+  categorias: string[];
   cliente_origem: string | null;
   status: "rascunho" | "validado";
   versao: number;
   data_origem: string | null;
   created_at: string;
+  responsavel_id: string | null;
+  responsavel_email: string | null;
 }
 
 export interface Secao {
@@ -75,6 +78,8 @@ export interface PocListItem {
   created_at: string;
   total_itens: number;
   itens_concluidos: number;
+  responsavel_id: string | null;
+  responsavel_email: string | null;
 }
 
 export interface Fase {
@@ -154,6 +159,7 @@ export interface ItemPoc {
   descricao: string | null;
   criterio_aceite: string | null;
   categoria: string | null;
+  categoria_codigo: string | null;
   fase: number;
   ref: string | null;
   conducao: CondicaoItem | null;
@@ -213,6 +219,7 @@ export interface ItemUpdatePayload {
   descricao?: string;
   criterio_aceite?: string;
   categoria?: string;
+  categoria_codigo?: string | null;
   fase?: number;
   ref?: string;
   conducao?: CondicaoItem | null;
@@ -226,12 +233,14 @@ export interface RfiItemOut {
   id: string;
   codigo: string;
   categoria: string | null;
+  categoria_codigo: string | null;
   descricao: string;
   ordem: number;
   veredito: VeredictoRfi | null;
   justificativa: string | null;
   fontes: Fonte[];
   origem: OrigemClassificacao | null;
+  procedimento_id: string | null;
   modelo: string | null;
   created_at: string;
 }
@@ -246,6 +255,8 @@ export interface RfiListItem {
   created_at: string;
   total_itens: number;
   itens_avaliados: number;
+  responsavel_id: string | null;
+  responsavel_email: string | null;
 }
 
 export interface RfiDetail extends RfiListItem {
@@ -258,6 +269,28 @@ export interface RfiDetail extends RfiListItem {
 export interface RfiItemManualPayload {
   veredito: VeredictoRfi;
   justificativa?: string | null;
+}
+
+export type TipoRecurso = "pocs" | "rfis" | "procedimentos";
+
+export interface VinculoResource {
+  id: string;
+  titulo: string;
+  tipo?: "poc" | "rfi";
+}
+
+export interface PreviaExclusao {
+  titulo: string;
+  podeExcluir: boolean;
+  semDono: boolean;
+  contagens: Record<string, number>;
+  procedimentosQuePermanecem: VinculoResource[];
+  vinculosQuePerdemProcedimento: VinculoResource[];
+}
+
+export interface UsuarioLookup {
+  id: string;
+  email: string;
 }
 
 export const api = {
@@ -373,4 +406,26 @@ export const api = {
     request<RfiItemOut>(`/api/rfis/${rfiId}/itens/${itemId}/reavaliar`, { method: "POST" }),
   urlExportarRfi: (rfiId: string) => `/api/rfis/${rfiId}/export`,
   urlExportarRfiXlsx: (rfiId: string) => `/api/rfis/${rfiId}/export.xlsx`,
+
+  lookupUsuario: (email: string) =>
+    request<UsuarioLookup>(`/api/auth/usuarios/lookup?email=${encodeURIComponent(email)}`),
+
+  previaExclusao: (tipo: TipoRecurso, id: string) => request<PreviaExclusao>(`/api/${tipo}/${id}/exclusao`),
+  definirResponsavel: (tipo: TipoRecurso, id: string, responsavelId: string) =>
+    request<{ id: string; responsavel_id: string }>(`/api/${tipo}/${id}/responsavel`, {
+      method: "PUT",
+      body: JSON.stringify({ responsavel_id: responsavelId }),
+    }),
+  excluir: (tipo: TipoRecurso, id: string, confirmar: string) =>
+    fetch(`/api/${tipo}/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmar }),
+    }).then(async (res) => {
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new ApiError(res.status, body?.detail ?? "Não foi possível excluir");
+      }
+    }),
 };

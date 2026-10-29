@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { api, User } from "./api";
+import { AuthProvider } from "./auth";
 import { LanguageProvider } from "./i18n";
 import { Login } from "./pages/Login";
 import { Layout } from "./pages/Layout";
@@ -36,24 +37,26 @@ export function App() {
       {!user ? (
         <Login onLogin={setUser} />
       ) : (
-        <Routes>
-          <Route element={<Layout user={user} onLogout={() => setUser(null)} />}>
-            <Route index element={<PlanPoc />} />
-            <Route path="procedimentos" element={<Procedimentos />} />
-            <Route path="procedimentos/novo" element={<ProcedimentoUpload />} />
-            <Route path="procedimentos/:id" element={<ProcedimentoView />} />
-            <Route path="pocs" element={<Pocs />} />
-            <Route path="pocs/novo" element={<PocUpload />} />
-            <Route path="pocs/:id" element={<PocDetail />} />
-            <Route path="rfis" element={<Rfis />} />
-            <Route path="rfis/novo" element={<RfiUpload />} />
-            <Route path="rfis/:id" element={<RfiDetail />} />
-            <Route path="usuarios" element={<Usuarios />} />
-            <Route path="minha-conta" element={<MinhaConta user={user} onUserAtualizado={setUser} />} />
-            <Route path="plan" element={<Navigate to="/" replace />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
+        <AuthProvider user={user}>
+          <Routes>
+            <Route element={<Layout user={user} onLogout={() => setUser(null)} />}>
+              <Route index element={<PlanPoc />} />
+              <Route path="procedimentos" element={<Procedimentos />} />
+              <Route path="procedimentos/novo" element={<ProcedimentoUpload />} />
+              <Route path="procedimentos/:id" element={<ProcedimentoView />} />
+              <Route path="pocs" element={<Pocs />} />
+              <Route path="pocs/novo" element={<PocUpload />} />
+              <Route path="pocs/:id" element={<PocDetail />} />
+              <Route path="rfis" element={<Rfis />} />
+              <Route path="rfis/novo" element={<RfiUpload />} />
+              <Route path="rfis/:id" element={<RfiDetail />} />
+              <Route path="usuarios" element={<Usuarios />} />
+              <Route path="minha-conta" element={<MinhaConta user={user} onUserAtualizado={setUser} />} />
+              <Route path="plan" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </AuthProvider>
       )}
     </LanguageProvider>
   );

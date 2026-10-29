@@ -56,6 +56,19 @@ def extrair_parametros_tecnicos(texto: str) -> dict[str, Any] | None:
     }
 
 
+# Produto do planejador -> código da taxonomia fixa (app/categorias.py), pra todo item importado do catálogo já
+# nascer com afinidade de categoria, sem precisar de uma chamada ao Gemini pra isso (este caminho não usa Gemini).
+_CATEGORIA_CODIGO_DO_PRODUTO = {
+    "virtualization": "VIRT",
+    "rancher": "K8S",
+    "security": "SEC",
+    "storage": "STR",
+    "observability": "OBS",
+    "registry": "K8S",
+    "appcollection": "K8S",
+    "manager": "OS",
+}
+
 # Mapeamentos dos valores do planejador para os do servidor (ADR 1). `result` -> estado do fluxo; `led` -> condução.
 _STATUS_DO_RESULTADO = {
     "pending": "pendente", "scheduled": "em_andamento", "running": "em_andamento",
@@ -110,6 +123,7 @@ def itens_do_planejador(texto: str) -> dict[str, Any] | None:
             "titulo": titulo,
             "criterio_aceite": _s(t.get("expected"), 2000) or None,
             "categoria": fases[fase - 1]["titulo"],
+            "categoria_codigo": _CATEGORIA_CODIGO_DO_PRODUTO.get(produto),
             "fase": fase,
             "catalogo_id": _s(t.get("catalogId"), 80) or None,
             "planner_id": _s(t.get("id"), 40) or None,

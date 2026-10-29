@@ -42,6 +42,11 @@ class ModeloDisponivelOut(BaseModel):
     nome_exibicao: str
 
 
+class UsuarioLookupOut(BaseModel):
+    id: str
+    email: str
+
+
 def _user_out(user: User) -> UserOut:
     return UserOut(
         id=str(user.id),
@@ -111,6 +116,16 @@ def remover_modelo_gemini(user: User = Depends(get_current_user), db: Session = 
     user.gemini_model = None
     db.commit()
     return _user_out(user)
+
+
+@router.get("/usuarios/lookup", response_model=UsuarioLookupOut)
+def buscar_usuario_por_email(email: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Resolve um e-mail pro id do usuário -- único jeito de "transferir para alguém" sem expor a
+    listagem completa de usuários (/api/users é admin-only) a quem não é admin."""
+    usuario = db.query(User).filter(User.email == email.strip()).first()
+    if usuario is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+    return UsuarioLookupOut(id=str(usuario.id), email=usuario.email)
 
 
 @router.get("/me/gemini-models", response_model=list[ModeloDisponivelOut])

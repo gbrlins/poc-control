@@ -32,25 +32,43 @@ def texto_item(item: Item) -> str:
     return "\n".join(partes)
 
 
-def _buscar_candidatos(db: Session, vetor: list[float], limit: int = TOP_K) -> list[ProcedimentoChunk]:
-    return (
-        db.query(ProcedimentoChunk)
-        .join(Procedimento)
-        .filter(Procedimento.status == StatusProcedimento.validado)
-        .order_by(ProcedimentoChunk.embedding.cosine_distance(vetor))
-        .limit(limit)
-        .all()
-    )
+def _buscar_candidatos(
+    db: Session, vetor: list[float], categorias_afinidade: list[str] | None = None, limit: int = TOP_K
+) -> list[ProcedimentoChunk]:
+    """Busca vetorial nos procedimentos validados. Quando o item tem uma categoria da taxonomia
+    fixa (app/categorias.py), restringe primeiro aos procedimentos marcados com ela -- mais rápido
+    e mais barato em tokens do que rankear a base inteira a cada item. Se essa busca restrita não
+    achar nada (a categoria ainda não tem nenhum procedimento cadastrado), refaz sem o filtro: uma
+    lacuna de tagueamento nunca pode custar um match que existiria de outro jeito."""
+    base = db.query(ProcedimentoChunk).join(Procedimento).filter(Procedimento.status == StatusProcedimento.validado)
+
+    if categorias_afinidade:
+        restrita = (
+            base.filter(Procedimento.categorias.overlap(categorias_afinidade))
+            .order_by(ProcedimentoChunk.embedding.cosine_distance(vetor))
+            .limit(limit)
+            .all()
+        )
+        if restrita:
+            return restrita
+
+    return base.order_by(ProcedimentoChunk.embedding.cosine_distance(vetor)).limit(limit).all()
 
 
 def sugerir_procedimentos(
     db: Session, item: Item, api_key: str | None = None, limite: int = 5
 ) -> list[Procedimento]:
     """Procedimentos validados mais parecidos com o item, por similaridade semântica (mesma
-    busca vetorial usada em classificar_item) — sem a confirmação do Gemini nem a busca web,
-    só o ranking, pra alimentar o seletor de "Importar procedimento validado" na UI."""
+    busca vetorial usada em classificar_item, já restrita por afinidade de categoria quando o
+    item tem uma) — sem a confirmação do Gemini nem a busca web, só o ranking, pra alimentar o
+    seletor de "Importar procedimento validado" na UI."""
     texto = texto_item(item)
-    chunks = _buscar_candidatos(db, embed_query(texto, api_key=api_key), limit=limite * 3)
+    chunks = _buscar_candidatos(
+        db,
+        embed_query(texto, api_key=api_key),
+        categorias_afinidade=[item.categoria_codigo] if item.categoria_codigo else None,
+        limit=limite * 3,
+    )
     vistos: dict[uuid.UUID, Procedimento] = {}
     for c in chunks:
         if c.procedimento_id not in vistos:
@@ -95,7 +113,11 @@ def classificar_item(
     texto = texto_item(item)
     modelo_usado = modelo_efetivo(model)
 
-    chunks = _buscar_candidatos(db, embed_query(texto, api_key=api_key))
+    chunks = _buscar_candidatos(
+        db,
+        embed_query(texto, api_key=api_key),
+        categorias_afinidade=[item.categoria_codigo] if item.categoria_codigo else None,
+    )
     if chunks:
         candidatos = [
             CandidatoProcedimento(

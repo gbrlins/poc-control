@@ -74,6 +74,18 @@ Ao concluir um item, o usuário pode anexar ou escrever o passo a passo que func
 - Indexar por **seção** (`h2`/`h3`), não o documento inteiro: cada seção é um chunk com embedding, ligado ao procedimento pai. Assim o match aponta para o passo certo.
 - Metadados: título, produtos/tecnologias (tags), cliente de origem, data, status (`rascunho` | `validado`), versão.
 - Os HTMLs seguem um padrão útil para extração: objetivo e fluxo no topo, "Valores desta sessão", "O que ressaltar", passos numerados com "Esperado:", "Se der erro" (tabela sintoma → causa → ação), "Limpeza" e "Evidências para o relatório".
+- **Categorias (taxonomia fixa, `api/app/categorias.py` / `web/src/categorias.ts`)**: 8 códigos (VIRT,
+  K8S, STR, SEC, OBS, OS, EDGE, IA) das mesmas áreas do portfólio SUSE usadas na triagem de RFI (ver
+  abaixo) -- distinto de `tags` (texto livre). Um procedimento pode ter **várias** categorias
+  (`Procedimento.categorias`, `ARRAY(String)` com índice GIN); um item de PoC/RFI tem **uma só**
+  (`Item.categoria_codigo`/`RfiItem.categoria_codigo`), extraída pelo Gemini junto com os outros campos
+  (sem chamada extra) ou herdada do catálogo do planejador (`app/pocs/planner_import.py`). Usada para
+  restringir a busca vetorial de procedimentos (`classificacao/service.py::_buscar_candidatos`) ao
+  subconjunto da mesma categoria antes de rankear por similaridade -- mais rápido e mais barato em
+  tokens do que varrer a base inteira a cada item; se a categoria ainda não tem nenhum procedimento,
+  cai pro fallback sem filtro (nunca perde um match só por lacuna de tagueamento). Mesma lógica vale
+  pro seletor manual "Importar procedimento validado" (`sugerir_procedimentos`) e pra busca do RFI (ver
+  abaixo). Migração `0018`.
 
 ### Carga inicial (pasta `seed/procedimentos/`)
 
@@ -86,7 +98,7 @@ Na carga, **remover ou mascarar** dados específicos do cliente que não devem s
 
 ## POCs
 
-- Upload do PDF, de uma planilha (XLSX/CSV), ou texto/JSON colado (inclusive o JSON exportado pelo planejador — ver "O planejador como tela inicial") → o Gemini lê nativamente e devolve JSON estruturado (schema fixo): `itens[] { codigo, titulo, descricao, criterio_aceite, categoria }`.
+- Upload do PDF, de uma planilha (XLSX/CSV), ou texto/JSON colado (inclusive o JSON exportado pelo planejador — ver "O planejador como tela inicial") → o Gemini lê nativamente e devolve JSON estruturado (schema fixo): `itens[] { codigo, titulo, descricao, criterio_aceite, categoria, categoria_codigo }` (`categoria_codigo` é a taxonomia fixa, vazio quando o item não se encaixa claramente numa área do portfólio SUSE — ver "Procedimentos" acima).
 - O usuário revisa a lista extraída (editar, juntar, remover) antes de rodar a classificação.
 - Cada POC tem **sessões** (data, participantes, agenda).
 - Em cada item: status (`pendente` | `em_andamento` | `concluido` | `bloqueado` | `nao_aplicavel`), notas com data e sessão, anexos e procedimento vinculado.
@@ -104,17 +116,26 @@ automática, feita antes/independente de qualquer execução.
   (XLSX/CSV, reaproveitando `app/pocs/planilha_import.py`), ou colar texto.
 - Extração (`extrair_itens_rfi` em `api/app/gemini.py`): o Gemini varre o documento inteiro
   (qualquer estilo de numeração/estrutura) e extrai só os itens-folha dentro das áreas do
-  portfólio SUSE — lista fixa no prompt (virtualização, Kubernetes/containers, storage,
-  segurança, observabilidade, SO Linux, edge, IA), não configurável na UI — preservando a
-  numeração original do edital (`codigo`) e usando a seção mais próxima como `categoria`. Ignora
-  cláusulas administrativas/jurídicas, penalidades, inventário de hardware e caderno de testes.
+  portfólio SUSE — lista fixa no prompt (`app/categorias.py`: virtualização, Kubernetes/containers,
+  storage, segurança, observabilidade, SO Linux, edge, IA), não configurável na UI — preservando a
+  numeração original do edital (`codigo`), usando a seção mais próxima como `categoria` (texto
+  livre) e classificando também `categoria_codigo` (o código da taxonomia fixa, na mesma chamada).
+  Ignora cláusulas administrativas/jurídicas, penalidades, inventário de hardware e caderno de
+  testes.
 - Assim que a extração termina, dispara **automaticamente** (mesmo background task, sem clique
-  extra — diferente do fluxo "classificar pendentes" do Executar PoC, que é manual) uma busca
-  web item a item com grounding do Google Search, classificando um veredito em **4 estados**:
-  `atende` / `atende_parcial` / `nao_atende` / `sem_evidencia`. "Sem evidência" existe pra nunca
-  afirmar atendimento (ou não-atendimento) sem achar prova — mesma filosofia do semáforo de PoC
-  acima. Mesmo workaround de 2 chamadas Gemini (grounding sem `response_schema` → classificação
-  com `response_schema` sem grounding) pela limitação documentada.
+  extra — diferente do fluxo "classificar pendentes" do Executar PoC, que é manual) a avaliação
+  item a item (`avaliar_item_rfi` em `app/rfi/service.py`). Desde que a categorização passou a
+  existir, a ordem mudou: **primeiro busca um procedimento interno validado** (restrito por
+  afinidade de `categoria_codigo`, mesma função `_buscar_candidatos` do semáforo de PoC) e só
+  pesquisa na web se nenhum procedimento confirmar o atendimento — mesmo espírito de "procurar
+  primeiro na base interna" do semáforo de PoC, e mais barato em tokens. Quando um procedimento
+  interno confirma, grava `veredito=atende` e `RfiItem.procedimento_id` (exibido na UI como "Ver
+  procedimento interno", sem fontes web). Senão, cai para a busca web com grounding do Google
+  Search, classificando um veredito em **4 estados**: `atende` / `atende_parcial` / `nao_atende` /
+  `sem_evidencia`. "Sem evidência" existe pra nunca afirmar atendimento (ou não-atendimento) sem
+  achar prova — mesma filosofia do semáforo de PoC acima. Mesmo workaround de 2 chamadas Gemini
+  (grounding sem `response_schema` → classificação com `response_schema` sem grounding) pela
+  limitação documentada.
 - Veredito é sugestão: editável manualmente (`origem: auto|manual`), e cada item tem um botão
   "Reavaliar" individual.
 - Export em HTML imprimível e XLSX (primeira escrita de planilha do projeto — `openpyxl` só lia
@@ -122,7 +143,8 @@ automática, feita antes/independente de qualquer execução.
 - Histórico (`/rfis`) com filtro por usuário e por data, resolvido 100% no front (lista inteira
   carregada de uma vez — não há endpoint de filtro, a escala não justifica).
 - Tabelas `rfis` (com `criado_por_id` → `users.id` — primeira FK do projeto apontando pra quem
-  criou um registro) e `rfi_itens`. Migração `0015`.
+  criou um registro) e `rfi_itens`. Migração `0015`; `rfi_itens.categoria_codigo` e
+  `rfi_itens.procedimento_id` (SET NULL) vieram na migração `0018`.
 
 ## Stack
 
@@ -138,11 +160,13 @@ automática, feita antes/independente de qualquer execução.
 
 ## Modelo de dados
 
-`users`, `pocs`, `poc_documentos` (PDF/planilha original), `itens`, `classificacoes` (flag,
-origem auto/manual, justificativa, fontes, modelo), `poc_prerequisitos`, `procedimentos`,
-`procedimento_chunks` (texto, embedding), `sessoes`, `notas`, `anexos`, `status_historico`,
-`rfis` (dono via `criado_por_id`), `rfi_itens` (veredito de 4 estados, justificativa, fontes).
-Tudo em `api/app/models.py` (arquivo único, não separado por feature).
+`users`, `pocs`, `poc_documentos` (PDF/planilha original), `itens` (com `categoria_codigo`),
+`classificacoes` (flag, origem auto/manual, justificativa, fontes, modelo), `poc_prerequisitos`,
+`procedimentos` (com `categorias`, array da taxonomia fixa), `procedimento_chunks` (texto,
+embedding), `sessoes`, `notas`, `anexos`, `status_historico`, `rfis` (dono via `criado_por_id`),
+`rfi_itens` (veredito de 4 estados, justificativa, fontes, `categoria_codigo`, `procedimento_id`).
+Tudo em `api/app/models.py` (arquivo único, não separado por feature); a taxonomia fixa de
+categorias vive em `api/app/categorias.py` (não é uma migração, é um dicionário Python).
 
 ## Marcos
 
@@ -284,24 +308,32 @@ Gemini que não volta) continua `extraindo` até o próximo reinício (não há 
 RFIs recuperadas ficam em `erro`, e a RFI ainda não tem "tentar de novo" (só reavaliar item). Testes:
 `tests/test_recuperacao_db.py` (Postgres, dentro do container da api).
 
-## Propriedade e exclusão permanente (PoC e RFI)
+## Propriedade e exclusão permanente (PoC, RFI e Procedimento)
 
 Regras da ADR 4 (`poc-planner/docs/adr/ADR-0004-ownership-deletion.md`, repo do planejador), implementadas em
-`app/exclusao.py`:
+`app/exclusao.py` e, no front, no componente compartilhado `web/src/components/DangerZone.tsx` (usado em
+`PocDetail.tsx`, `RfiDetail.tsx` e `ProcedimentoView.tsx` — é o único lugar da UI que chama esses endpoints; as
+listagens (`Pocs.tsx`, `Rfis.tsx`, `Procedimentos.tsx`) só mostram a coluna "Dono"):
 
 - **O dono é `responsavel_id`** (`criado_por_id` é só fato de auditoria), em `pocs`, `procedimentos` e `rfis`. Quem cria vira
   o dono. As PoCs e procedimentos anteriores à migração `0017` ficam **sem dono**; as RFIs começam com o criador como dono.
   Todo usuário logado continua vendo tudo.
-- **Só o dono exclui**: `DELETE /api/pocs/{id}` e `DELETE /api/rfis/{id}` com corpo `{"confirmar": "<título>"}`. Nem o
-  administrador exclui a PoC de outra pessoa (403); linha sem dono também dá 403 ("assuma antes"); título errado dá 400.
-  `GET /api/pocs/{id}/exclusao` (e `/api/rfis/{id}/exclusao`) mostra o que seria removido e o que permanece, pra tela de
-  confirmação.
+- **Só o dono exclui**: `DELETE /api/pocs/{id}`, `DELETE /api/rfis/{id}` e `DELETE /api/procedimentos/{id}` com corpo
+  `{"confirmar": "<título>"}`. Nem o administrador exclui a linha de outra pessoa (403); linha sem dono também dá 403
+  ("assuma antes"); título errado dá 400. `GET .../{id}/exclusao` mostra o que seria removido e o que permanece/perde o
+  vínculo, pra tela de confirmação.
 - **Dono**: `PUT .../responsavel` com `{"responsavel_id"}`: o dono atual transfere; qualquer engenheiro assume uma linha
-  sem dono (só pra si); o administrador reatribui (mas não exclui).
+  sem dono (só pra si); o administrador reatribui (mas não exclui). O front resolve o e-mail digitado na transferência via
+  `GET /api/auth/usuarios/lookup?email=` (qualquer usuário logado, não só admin — `/api/users` é admin-only).
 - **O que a exclusão faz**: uma transação grava a linha de auditoria em `exclusoes` (tipo, quem, quando, **título**,
-  contagens; sem cliente nem conteúdo) e remove as linhas (cascata); só depois remove `uploads/pocs/<id>/` ou
-  `uploads/rfis/<id>/` (pasta montada a partir do id, nunca de um caminho do banco). Falha ao apagar arquivo vai pro log e
-  não desfaz a exclusão; `python scripts/limpar_orfaos.py [--apagar]` (no container da api) acha as sobras.
+  contagens; sem cliente nem conteúdo) e remove as linhas (cascata); PoC/RFI só depois removem `uploads/pocs/<id>/` ou
+  `uploads/rfis/<id>/` (pasta montada a partir do id, nunca de um caminho do banco) -- Procedimento não tem pasta (o HTML
+  mora no banco, `pasta_do("procedimento", ...)` devolve `None`). Falha ao apagar arquivo vai pro log e não desfaz a
+  exclusão; `python scripts/limpar_orfaos.py [--apagar]` (no container da api) acha as sobras.
+- **Excluir um Procedimento** nunca quebra quem o citava: `Classificacao.procedimento_id`, `Anexo.procedimento_id` e
+  `RfiItem.procedimento_id` são `ON DELETE SET NULL` -- a PoC/RFI continua existindo, só perde o vínculo (mostrado na
+  prévia como `vinculosQuePerdemProcedimento`).
 - **Sobrevivem**: o histórico anônimo `resultados_catalogo` (com `poc_id` nulo) e os procedimentos promovidos a partir dos
-  anexos da PoC (ficam para reutilização). Sem lixeira nem exclusão lógica; os dumps de backup guardam os dados por até 14
-  dias, e o que já foi enviado ao Gemini não volta. Testes: `tests/test_exclusao_db.py` (Postgres, no container da api).
+  anexos da PoC (ficam para reutilização, a não ser que o próprio procedimento seja excluído depois). Sem lixeira nem
+  exclusão lógica; os dumps de backup guardam os dados por até 14 dias, e o que já foi enviado ao Gemini não volta. Testes:
+  `tests/test_exclusao_db.py` (Postgres, no container da api).

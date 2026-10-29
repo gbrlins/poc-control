@@ -47,6 +47,7 @@ def _list_item(db: Session, rfi: Rfi) -> RfiListItem:
         total_itens=total,
         itens_avaliados=avaliados,
         responsavel_id=rfi.responsavel_id,
+        responsavel_email=rfi.responsavel.email if rfi.responsavel else None,
     )
 
 
@@ -164,18 +165,8 @@ def criar_rfi(
 @router.get("/{rfi_id}", response_model=RfiDetail)
 def obter_rfi(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
     rfi = _get_rfi_or_404(db, rfi_id)
-    total, avaliados = _contar_itens(db, rfi.id)
     return RfiDetail(
-        id=rfi.id,
-        titulo=rfi.titulo,
-        orgao=rfi.orgao,
-        numero_processo=rfi.numero_processo,
-        status_extracao=rfi.status_extracao,
-        criado_por_email=rfi.criado_por.email,
-        created_at=rfi.created_at,
-        total_itens=total,
-        itens_avaliados=avaliados,
-        responsavel_id=rfi.responsavel_id,
+        **_list_item(db, rfi).model_dump(),
         erro_extracao=rfi.erro_extracao,
         modelo_extracao=rfi.modelo_extracao,
         nome_arquivo=rfi.nome_arquivo,

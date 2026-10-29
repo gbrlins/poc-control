@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   api,
   CondicaoItem,
@@ -12,6 +12,8 @@ import {
   Sessao,
   StatusItem,
 } from "@/api";
+import { CODIGOS_CATEGORIA, rotuloCategoria } from "@/categorias";
+import { DangerZone } from "@/components/DangerZone";
 import { useLanguage } from "@/i18n";
 
 const TAB_IDS = ["pre", "plano", "resumo", "andamento", "apresentacao"] as const;
@@ -67,6 +69,7 @@ function faseDescricao(fases: Fase[], numero: number) {
 export function PocDetail() {
   const { t } = useLanguage();
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [poc, setPoc] = useState<PocDetailData | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("plano");
@@ -375,6 +378,17 @@ export function PocDetail() {
       {tab === "apresentacao" && (
         <ApresentacaoTab poc={poc} onResumoAtualizado={handleResumoExecutivoAtualizado} />
       )}
+
+      <DangerZone
+        tipo="pocs"
+        id={poc.id}
+        responsavelId={poc.responsavel_id}
+        responsavelEmail={poc.responsavel_email}
+        onResponsavelAtualizado={(responsavelId, responsavelEmail) =>
+          setPoc({ ...poc, responsavel_id: responsavelId, responsavel_email: responsavelEmail })
+        }
+        onExcluido={() => navigate("/pocs")}
+      />
     </div>
   );
 }
@@ -945,7 +959,7 @@ function ItemRow({
   onAtualizado: (item: ItemPoc) => void;
   onRemovido: (itemId: string) => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const STATUS_LABEL = statusLabels(t);
   const CONDUCAO_LABEL = conducaoLabels(t);
   const FLAG_LABEL = flagLabels(t);
@@ -956,6 +970,7 @@ function ItemRow({
   const [descricao, setDescricao] = useState(item.descricao ?? "");
   const [criterio, setCriterio] = useState(item.criterio_aceite ?? "");
   const [categoria, setCategoria] = useState(item.categoria ?? "");
+  const [categoriaCodigo, setCategoriaCodigo] = useState(item.categoria_codigo ?? "");
   const [fase, setFase] = useState(item.fase);
   const [conducao, setConducao] = useState<CondicaoItem | "">(item.conducao ?? "");
   const [salvando, setSalvando] = useState(false);
@@ -1101,6 +1116,7 @@ function ItemRow({
         descricao,
         criterio_aceite: criterio,
         categoria,
+        categoria_codigo: categoriaCodigo || null,
         fase,
         conducao: conducao || null,
       });
@@ -1136,6 +1152,11 @@ function ItemRow({
         <span className="item-titulo">
           {item.titulo}
           {item.categoria && <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>{item.categoria}</span>}
+          {item.categoria_codigo && (
+            <span className="chip" style={{ marginLeft: 8 }} title={rotuloCategoria(item.categoria_codigo, lang)}>
+              {item.categoria_codigo}
+            </span>
+          )}
         </span>
         <button
           className="icon-btn"
@@ -1193,6 +1214,17 @@ function ItemRow({
                 <div className="field">
                   <label>{t("itemRow.categoria")}</label>
                   <input className="input" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>{t("itemRow.categoriaCodigo")}</label>
+                  <select className="input" value={categoriaCodigo} onChange={(e) => setCategoriaCodigo(e.target.value)}>
+                    <option value="">{t("itemRow.categoriaCodigoNenhuma")}</option>
+                    {CODIGOS_CATEGORIA.map((codigo) => (
+                      <option key={codigo} value={codigo}>
+                        {codigo} — {rotuloCategoria(codigo, lang)}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="field">
                   <label>{t("itemRow.fase")}</label>

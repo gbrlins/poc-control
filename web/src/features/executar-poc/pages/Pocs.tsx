@@ -52,6 +52,7 @@ export function Pocs() {
                   <th>{t("pocs.colStatus")}</th>
                   <th>{t("pocs.colExtracao")}</th>
                   <th>{t("pocs.colProgresso")}</th>
+                  <th>{t("pocs.colDono")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -76,6 +77,7 @@ export function Pocs() {
                     <td className="muted">
                       {p.total_itens > 0 ? `${pct(p)}% (${p.itens_concluidos}/${p.total_itens})` : "—"}
                     </td>
+                    <td className="muted">{p.responsavel_email ?? t("pocs.semDono")}</td>
                   </tr>
                 ))}
               </tbody>

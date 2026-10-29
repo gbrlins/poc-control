@@ -23,8 +23,8 @@ from app.config import settings  # noqa: E402
 from app.deps import get_current_user  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import (  # noqa: E402
-    Anexo, Exclusao, Item, Nota, Poc, PocDocumento, Procedimento, ResultadoCatalogo, ResultadoItem, Rfi, RfiItem, Sessao,
-    StatusExtracao, User,
+    Anexo, Classificacao, Exclusao, FlagClassificacao, Item, Nota, OrigemClassificacao, Poc, PocDocumento, Procedimento,
+    ResultadoCatalogo, ResultadoItem, Rfi, RfiItem, Sessao, StatusExtracao, User,
 )
 
 SEGREDO_DO_CLIENTE = "Banco Aurora S.A."
@@ -258,6 +258,71 @@ def test_quem_cria_uma_poc_vira_o_dono(db, usuarios):
     assert poc.criado_por_id == alice.id and poc.responsavel_id == alice.id and r.json()["responsavel_id"] == str(alice.id)
     como(alice).request("DELETE", f"/api/pocs/{pid}", json={"confirmar": poc.titulo})
     db.query(ResultadoCatalogo).filter(ResultadoCatalogo.catalogo_id == "cat-dono").delete()
+    db.commit()
+
+
+def test_procedimento_mesmas_regras_e_vinculos_viram_null(db, usuarios):
+    alice, bob = usuarios["alice"], usuarios["bob"]
+    proc = Procedimento(
+        titulo="Procedimento " + uuid.uuid4().hex[:6],
+        html_original="<h2>x</h2>",
+        cliente_origem=SEGREDO_DO_CLIENTE,
+        categorias=["K8S"],
+        criado_por_id=alice.id,
+        responsavel_id=alice.id,
+    )
+    db.add(proc)
+    db.commit()
+
+    # PoC e RFI citando o procedimento -- excluir não deve quebrar nenhum dos dois, só soltar o vínculo (SET NULL).
+    poc = _poc(db, alice)
+    item = Item(poc_id=poc.id, codigo="1.1", titulo="Criar VM", fase=1)
+    db.add(item)
+    db.flush()
+    db.add(Classificacao(item_id=item.id, flag=FlagClassificacao.verde, origem=OrigemClassificacao.auto, procedimento_id=proc.id))
+    rfi = Rfi(titulo="RFI " + uuid.uuid4().hex[:6], orgao=SEGREDO_DO_CLIENTE, status_extracao=StatusExtracao.pronto,
+              nome_arquivo="e.pdf", caminho_arquivo="", criado_por_id=alice.id, responsavel_id=alice.id)
+    db.add(rfi)
+    db.commit()
+    rfi_item = RfiItem(rfi_id=rfi.id, codigo="1", descricao="req", procedimento_id=proc.id)
+    db.add(rfi_item)
+    db.commit()
+    proc_id, item_id, rfi_item_id = proc.id, item.id, rfi_item.id
+
+    c = como(alice)
+    assert c.request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": "errado"}).status_code == 400
+    assert como(bob).request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": proc.titulo}).status_code == 403
+
+    prev = c.get(f"/api/procedimentos/{proc_id}/exclusao").json()
+    assert prev["podeExcluir"] is True and prev["contagens"]["vinculos"] >= 1
+    vinculos = {v["id"] for v in prev["vinculosQuePerdemProcedimento"]}
+    assert str(poc.id) in vinculos and str(rfi.id) in vinculos
+
+    assert c.request("DELETE", f"/api/procedimentos/{proc_id}", json={"confirmar": proc.titulo}).status_code == 204
+    db.expire_all()
+    assert db.get(Procedimento, proc_id) is None
+    assert db.get(Item, item_id) is not None, "a PoC continua existindo"
+    assert db.query(Classificacao).filter(Classificacao.item_id == item_id).one().procedimento_id is None, "o vínculo da classificação vira NULL"
+    assert db.query(RfiItem).filter(RfiItem.id == rfi_item_id).one().procedimento_id is None, "o vínculo do RFI vira NULL"
+
+    aud = db.query(Exclusao).filter(Exclusao.excluido_por_id == alice.id, Exclusao.tipo == "procedimento").one()
+    assert SEGREDO_DO_CLIENTE not in json.dumps([aud.titulo, aud.contagens])
+    db.query(Poc).filter(Poc.id == poc.id).delete()
+    db.query(Rfi).filter(Rfi.id == rfi.id).delete()
+    db.commit()
+
+
+def test_procedimento_assumir_e_transferir(db, usuarios):
+    alice, bob = usuarios["alice"], usuarios["bob"]
+    proc = Procedimento(titulo="Procedimento " + uuid.uuid4().hex[:6], html_original="<h2>x</h2>")
+    db.add(proc)
+    db.commit()
+    url = f"/api/procedimentos/{proc.id}/responsavel"
+    assert como(bob).put(url, json={"responsavel_id": str(alice.id)}).status_code == 403
+    assert como(bob).put(url, json={"responsavel_id": str(bob.id)}).status_code == 200
+    db.expire_all()
+    assert db.get(Procedimento, proc.id).responsavel_id == bob.id
+    db.query(Procedimento).filter(Procedimento.id == proc.id).delete()
     db.commit()
 
 

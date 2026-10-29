@@ -16,7 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Anexo, Exclusao, Item, Nota, Poc, Procedimento, Rfi, RfiItem, User
+from app.models import Anexo, Classificacao, Exclusao, Item, Nota, Poc, Procedimento, ProcedimentoChunk, Rfi, RfiItem, User
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,16 @@ def pode_atribuir(user: User, recurso, novo_id: uuid.UUID) -> bool:
     return recurso.responsavel_id is None and novo_id == user.id  # assumir uma linha sem dono
 
 
-def pasta_do(tipo: str, recurso_id: uuid.UUID) -> pathlib.Path:
-    """Sempre montada a partir do id (nunca de um caminho guardado no banco), então nada fora de uploads/ é tocado."""
+def pasta_do(tipo: str, recurso_id: uuid.UUID) -> pathlib.Path | None:
+    """Sempre montada a partir do id (nunca de um caminho guardado no banco), então nada fora de uploads/ é tocado.
+    Procedimento não tem pasta em disco (o HTML mora no banco, em `html_original`) -- None."""
+    if tipo == "procedimento":
+        return None
     return pathlib.Path(settings.uploads_dir) / ("pocs" if tipo == "poc" else "rfis") / str(recurso_id)
 
 
-def _arquivos(pasta: pathlib.Path) -> int:
-    return sum(1 for p in pasta.rglob("*") if p.is_file()) if pasta.is_dir() else 0
+def _arquivos(pasta: pathlib.Path | None) -> int:
+    return sum(1 for p in pasta.rglob("*") if p.is_file()) if pasta is not None and pasta.is_dir() else 0
 
 
 def _titulo_de_confirmacao(recurso) -> str:
@@ -62,14 +65,43 @@ def procedimentos_que_permanecem(db: Session, poc: Poc) -> list[dict]:
     return [{"id": str(i), "titulo": t} for i, t in linhas]
 
 
+def vinculos_que_perdem_procedimento(db: Session, procedimento: Procedimento) -> list[dict]:
+    """PoCs e RFIs que citam este procedimento (classificação, anexo validado ou veredito de RFI)
+    -- excluir o procedimento nunca os quebra (as FKs são SET NULL), só solta o vínculo. Mostrado
+    na prévia de exclusão para o usuário saber o que vai perder a referência."""
+    pocs = (
+        db.query(Poc.id, Poc.titulo)
+        .join(Item, Item.poc_id == Poc.id)
+        .outerjoin(Classificacao, Classificacao.item_id == Item.id)
+        .outerjoin(Anexo, Anexo.item_id == Item.id)
+        .filter((Classificacao.procedimento_id == procedimento.id) | (Anexo.procedimento_id == procedimento.id))
+        .distinct()
+        .all()
+    )
+    rfis = (
+        db.query(Rfi.id, Rfi.titulo)
+        .join(RfiItem, RfiItem.rfi_id == Rfi.id)
+        .filter(RfiItem.procedimento_id == procedimento.id)
+        .distinct()
+        .all()
+    )
+    return [{"id": str(i), "titulo": t, "tipo": "poc"} for i, t in pocs] + [
+        {"id": str(i), "titulo": t, "tipo": "rfi"} for i, t in rfis
+    ]
+
+
 def contagens(db: Session, tipo: str, recurso) -> dict:
     if tipo == "poc":
         itens = db.query(func.count(Item.id)).filter(Item.poc_id == recurso.id).scalar() or 0
         notas = db.query(func.count(Nota.id)).join(Item, Item.id == Nota.item_id).filter(Item.poc_id == recurso.id).scalar() or 0
         anexos = db.query(func.count(Anexo.id)).join(Item, Item.id == Anexo.item_id).filter(Item.poc_id == recurso.id).scalar() or 0
         return {"itens": itens, "notas": notas, "anexos": anexos, "sessoes": len(recurso.sessoes), "arquivos": _arquivos(pasta_do("poc", recurso.id))}
-    itens = db.query(func.count(RfiItem.id)).filter(RfiItem.rfi_id == recurso.id).scalar() or 0
-    return {"itens": itens, "arquivos": _arquivos(pasta_do("rfi", recurso.id))}
+    if tipo == "rfi":
+        itens = db.query(func.count(RfiItem.id)).filter(RfiItem.rfi_id == recurso.id).scalar() or 0
+        return {"itens": itens, "arquivos": _arquivos(pasta_do("rfi", recurso.id))}
+    secoes = db.query(func.count(ProcedimentoChunk.id)).filter(ProcedimentoChunk.procedimento_id == recurso.id).scalar() or 0
+    vinculos = len(vinculos_que_perdem_procedimento(db, recurso))
+    return {"secoes": secoes, "vinculos": vinculos}
 
 
 def previa(db: Session, user: User, tipo: str, recurso) -> dict:
@@ -79,6 +111,7 @@ def previa(db: Session, user: User, tipo: str, recurso) -> dict:
         "semDono": recurso.responsavel_id is None,
         "contagens": contagens(db, tipo, recurso),
         "procedimentosQuePermanecem": procedimentos_que_permanecem(db, recurso) if tipo == "poc" else [],
+        "vinculosQuePerdemProcedimento": vinculos_que_perdem_procedimento(db, recurso) if tipo == "procedimento" else [],
     }
 
 
@@ -98,8 +131,10 @@ def excluir(db: Session, user: User, tipo: str, recurso, confirmar: str) -> None
     db.commit()
 
     # Depois do commit: um arquivo que não apagar não desfaz a exclusão (as linhas já foram). Vai pro log e pro script de
-    # varredura de órfãos (scripts/limpar_orfaos.py).
+    # varredura de órfãos (scripts/limpar_orfaos.py). Procedimento não tem pasta (pasta_do devolve None).
     pasta = pasta_do(tipo, recurso_id)
+    if pasta is None:
+        return
     try:
         shutil.rmtree(pasta)
     except FileNotFoundError:

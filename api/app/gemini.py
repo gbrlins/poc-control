@@ -7,6 +7,7 @@ from google.genai import types
 from google.genai import errors as genai_errors
 from pydantic import BaseModel
 
+from app.categorias import descricoes_formatadas
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,7 @@ class ItemExtraido(BaseModel):
     descricao: str
     criterio_aceite: str
     categoria: str
+    categoria_codigo: str = ""
     fase: int
     ref: str = ""
 
@@ -206,15 +208,18 @@ sequencial dentro da fase, ex. "1.1", "1.2").
   - descricao: o que o teste envolve.
   - criterio_aceite: o que caracteriza sucesso (se o documento não disser explicitamente, infira algo \
 razoável a partir do título/descrição).
-  - categoria: área técnica (ex.: "Virtualização", "Storage", "Rede", "Segurança", "Banco de Dados", \
-"Backup", "DR").
+  - categoria: área técnica em texto livre (ex.: "Virtualização", "Storage", "Rede", "Segurança", \
+"Banco de Dados", "Backup", "DR") -- pode ser mais específica que a lista de categoria_codigo abaixo.
+  - categoria_codigo: SE o item se encaixar claramente numa destas áreas do portfólio SUSE, o código \
+correspondente (senão string vazia -- não force um código pra item que não seja sobre isso):
+{categorias}
   - fase: número da fase (da lista "fases" acima) a que esse item pertence.
   - ref: referência à seção/página do documento original, se houver (senão string vazia).
 - prerequisitos: pré-requisitos técnicos mencionados no documento (hardware, rede, acessos, software, \
 times envolvidos) como título curto + descrição. Lista vazia se o documento não tratar disso.
 
 Responda só com os dados pedidos, em português, sem inventar itens que não tenham base no documento.
-"""
+""".replace("{categorias}", descricoes_formatadas())
 
 
 _RETRY_CODES = {429, 500, 503}
@@ -375,6 +380,7 @@ def extrair_projeto_planejador(
 class ItemRfiExtraido(BaseModel):
     codigo: str
     categoria: str
+    categoria_codigo: str = ""
     descricao: str
 
 
@@ -393,20 +399,9 @@ O documento pode ter qualquer estrutura (numeração de 2, 3, 4 ou mais níveis,
 nomeadas, em um ou mais lotes/itens de licitação) — varra o documento inteiro, não assuma um formato \
 fixo.
 
-O portfólio SUSE relevante cobre estas áreas (um requisito só entra na triagem se tratar de uma \
-delas):
-- Virtualização de servidores / hipervisor (ex.: SUSE Virtualization / Harvester, HCI, vMotion, DRS, \
-  storage definido por software para VMs).
-- Kubernetes / orquestração de containers (ex.: Rancher, RKE2/K3s, gestão multi-cluster, CNI, Ingress, \
-  GitOps, Helm).
-- Armazenamento definido por software (ex.: Longhorn, CSI, replicação, snapshots).
-- Segurança de containers/cluster (ex.: NeuVector, scan de vulnerabilidade, políticas de rede, \
-  DevSecOps, RBAC).
-- Observabilidade (ex.: métricas, logs, Prometheus/Grafana, alertas).
-- Sistema operacional Linux corporativo (ex.: SUSE Linux Enterprise Server, gestão de patches, \
-  compliance, suporte de fabricante).
-- Edge computing / dispositivos distribuídos.
-- Inteligência artificial / MLOps em infraestrutura on-premise.
+O portfólio SUSE relevante cobre estas áreas, cada uma com seu código (um requisito só entra na \
+triagem se tratar de uma delas):
+{categorias}
 
 Ignore explicitamente: cláusulas administrativas/jurídicas, critérios de habilitação da empresa, \
 prazos, penalidades, garantias contratuais, modelo de pagamento, tabelas de inventário de hardware \
@@ -419,6 +414,7 @@ Para cada requisito-folha (o nível mais específico, não os títulos de agrupa
   ou renumere — copie literalmente.
 - categoria: o título da seção ou subseção mais próxima que agrupa esse requisito (ex.: "Storage \
   Definido Por Software (SDS) E Bancos De Dados").
+- categoria_codigo: o código (da lista acima) da área do portfólio em que esse requisito se encaixa.
 - descricao: o texto do requisito como está no documento, sem resumir nem reescrever o conteúdo \
   técnico (pode normalizar quebras de linha e espaçamento).
 
@@ -431,7 +427,7 @@ Também devolva:
 
 Responda em português, sem inventar itens que não tenham base no documento. Se nenhum requisito do \
 documento se encaixar nas áreas acima, devolva uma lista de itens vazia.
-"""
+""".replace("{categorias}", descricoes_formatadas())
 
 
 def extrair_itens_rfi(

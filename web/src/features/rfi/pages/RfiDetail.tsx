@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, RfiDetail as RfiDetailData, RfiItemOut, VeredictoRfi } from "@/api";
+import { rotuloCategoria } from "@/categorias";
+import { DangerZone } from "@/components/DangerZone";
 import { useLanguage } from "@/i18n";
 
 const VEREDITO_BADGE: Record<VeredictoRfi, string> = {
@@ -12,7 +14,8 @@ const VEREDITO_BADGE: Record<VeredictoRfi, string> = {
 
 export function RfiDetail() {
   const { id } = useParams();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  const navigate = useNavigate();
   const [rfi, setRfi] = useState<RfiDetailData | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
@@ -111,6 +114,17 @@ export function RfiDetail() {
           </div>
         </div>
       ))}
+
+      <DangerZone
+        tipo="rfis"
+        id={rfi.id}
+        responsavelId={rfi.responsavel_id}
+        responsavelEmail={rfi.responsavel_email}
+        onResponsavelAtualizado={(responsavelId, responsavelEmail) =>
+          setRfi({ ...rfi, responsavel_id: responsavelId, responsavel_email: responsavelEmail })
+        }
+        onExcluido={() => navigate("/rfis")}
+      />
     </div>
   );
 }
@@ -124,7 +138,7 @@ function RfiItemRow({
   item: RfiItemOut;
   onAtualizado: (item: RfiItemOut) => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [open, setOpen] = useState(false);
   const [editando, setEditando] = useState(false);
   const [veredito, setVeredito] = useState<VeredictoRfi>(item.veredito ?? "sem_evidencia");
@@ -174,6 +188,11 @@ function RfiItemRow({
         <span className="item-codigo">{item.codigo}</span>
         <span className="item-titulo" style={{ flex: 1 }}>
           {item.descricao}
+          {item.categoria_codigo && (
+            <span className="chip" style={{ marginLeft: 8 }} title={rotuloCategoria(item.categoria_codigo, lang)}>
+              {item.categoria_codigo}
+            </span>
+          )}
         </span>
         {item.veredito ? (
           <span className={`badge ${VEREDITO_BADGE[item.veredito]}`}>{VEREDITO_LABEL[item.veredito]}</span>
@@ -185,6 +204,13 @@ function RfiItemRow({
       {open && (
         <div className="item-row-body">
           {item.justificativa && <p className="muted" style={{ marginTop: 0 }}>{item.justificativa}</p>}
+          {item.procedimento_id && (
+            <p style={{ marginTop: 0 }}>
+              <Link to={`/procedimentos/${item.procedimento_id}`} className="btn btn-secondary" style={{ display: "inline-flex" }}>
+                {t("rfiItemRow.verProcedimentoInterno")}
+              </Link>
+            </p>
+          )}
           {item.fontes.length > 0 && (
             <ul style={{ margin: "0 0 12px", paddingLeft: 18 }}>
               {item.fontes.map((f, i) => (

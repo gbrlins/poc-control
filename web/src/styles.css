@@ -434,6 +434,17 @@ h2 {
   background: var(--color-bg);
 }
 
+.btn-danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-danger);
+  color: var(--color-primary-contrast);
+}
+
 /* Forms */
 
 .form {
@@ -668,6 +679,49 @@ textarea.input {
 .chip-lateral {
   border: 1px dashed var(--color-warning);
   color: var(--color-warning);
+}
+
+/* Chips clicáveis de filtro por categoria (Procedimentos) e de seleção em formulário (upload) */
+
+.chip-filter {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.chip-filter.active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft, var(--color-bg));
+}
+
+.chip-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Bloco de exclusão permanente / propriedade (DangerZone) */
+
+.danger-zone {
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-soft);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-top: 20px;
+}
+
+.danger-zone h2 {
+  color: var(--color-danger);
+  margin-top: 0;
 }
 
 /* Cabeçalho de POC com progresso */

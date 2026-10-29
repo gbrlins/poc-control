@@ -48,6 +48,10 @@ class Procedimento(Base):
     )
     versao: Mapped[int] = mapped_column(Integer, default=1)
     html_original: Mapped[str] = mapped_column(Text, nullable=False)
+    # Taxonomia fixa (app/categorias.py) -- um procedimento pode cobrir mais de uma área (ex.: o
+    # seed de Vault é K8S e SEC). Usado para restringir a busca vetorial por afinidade antes de
+    # rankear por similaridade (classificacao/service.py::_buscar_candidatos).
+    categorias: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     criado_por_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -58,9 +62,18 @@ class Procedimento(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    criado_por: Mapped["User | None"] = relationship(foreign_keys=[criado_por_id])
+    responsavel: Mapped["User | None"] = relationship(foreign_keys=[responsavel_id])
     chunks: Mapped[list["ProcedimentoChunk"]] = relationship(
         back_populates="procedimento", cascade="all, delete-orphan", order_by="ProcedimentoChunk.order_index"
     )
+
+    @property
+    def responsavel_email(self) -> str | None:
+        """Pydantic (`from_attributes=True`) lê isso direto via getattr -- é o que permite
+        `ProcedimentoListItem.model_validate(procedimento)` sem um builder manual, diferente de
+        Poc/Rfi que já montam a resposta campo a campo."""
+        return self.responsavel.email if self.responsavel else None
 
 
 class ProcedimentoChunk(Base):
@@ -127,6 +140,8 @@ class Poc(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
+    criado_por: Mapped["User | None"] = relationship(foreign_keys=[criado_por_id])
+    responsavel: Mapped["User | None"] = relationship(foreign_keys=[responsavel_id])
     documentos: Mapped[list["PocDocumento"]] = relationship(
         back_populates="poc", cascade="all, delete-orphan", order_by="PocDocumento.created_at"
     )
@@ -220,6 +235,10 @@ class Item(Base):
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     criterio_aceite: Mapped[str | None] = mapped_column(Text, nullable=True)
     categoria: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Código da taxonomia fixa (app/categorias.py), distinto de `categoria` (texto livre vindo do
+    # documento original) -- usado só para restringir a busca vetorial de procedimentos por
+    # afinidade. Nulo quando o item não se encaixa claramente numa das áreas do portfólio SUSE.
+    categoria_codigo: Mapped[str | None] = mapped_column(String(10), nullable=True)
     fase: Mapped[int] = mapped_column(Integer, default=1)
     ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
     conducao: Mapped[CondicaoItem | None] = mapped_column(
@@ -338,6 +357,7 @@ class Rfi(Base):
 
     # Duas chaves para users (criador e responsável): a relação do criador diz qual delas usa.
     criado_por: Mapped["User"] = relationship(foreign_keys=[criado_por_id])
+    responsavel: Mapped["User | None"] = relationship(foreign_keys=[responsavel_id])
     itens: Mapped[list["RfiItem"]] = relationship(
         back_populates="rfi", cascade="all, delete-orphan", order_by="RfiItem.ordem"
     )
@@ -352,6 +372,9 @@ class RfiItem(Base):
     )
     codigo: Mapped[str] = mapped_column(String(50), nullable=False)
     categoria: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Código da taxonomia fixa (app/categorias.py) -- ver Item.categoria_codigo. Usado para
+    # restringir a busca de procedimento interno antes da pesquisa web (app/rfi/service.py).
+    categoria_codigo: Mapped[str | None] = mapped_column(String(10), nullable=True)
     descricao: Mapped[str] = mapped_column(Text, nullable=False)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
     # Nulo até a busca web rodar pra este item (ver app/rfi/service.py::avaliar_item_rfi) -- é
@@ -363,12 +386,18 @@ class RfiItem(Base):
     origem: Mapped[OrigemClassificacao | None] = mapped_column(
         Enum(OrigemClassificacao, name="origem_classificacao"), nullable=True
     )
+    # Preenchido quando um procedimento validado interno (não a web) confirma o atendimento --
+    # ver app/rfi/service.py::avaliar_item_rfi. SET NULL se o procedimento for excluído depois.
+    procedimento_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("procedimentos.id", ondelete="SET NULL"), nullable=True
+    )
     modelo: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     rfi: Mapped[Rfi] = relationship(back_populates="itens")
+    procedimento: Mapped[Procedimento | None] = relationship()
 
 
 class Prerequisito(Base):

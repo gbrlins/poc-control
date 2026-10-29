@@ -19,11 +19,14 @@ class ProcedimentoListItem(BaseModel):
     id: uuid.UUID
     titulo: str
     tags: list[str]
+    categorias: list[str]
     cliente_origem: str | None
     status: StatusProcedimento
     versao: int
     data_origem: date | None
     created_at: datetime
+    responsavel_id: uuid.UUID | None = None
+    responsavel_email: str | None = None
 
 
 class ProcedimentoDetail(ProcedimentoListItem):

@@ -101,6 +101,7 @@ export function Rfis() {
                   <th>{t("rfis.colTitulo")}</th>
                   <th>{t("rfis.colProcesso")}</th>
                   <th>{t("rfis.colCriadoPor")}</th>
+                  <th>{t("rfis.colDono")}</th>
                   <th>{t("rfis.colData")}</th>
                   <th>{t("rfis.colStatus")}</th>
                   <th>{t("rfis.colProgresso")}</th>
@@ -115,6 +116,7 @@ export function Rfis() {
                     </td>
                     <td className="muted">{r.numero_processo || "—"}</td>
                     <td className="muted">{r.criado_por_email}</td>
+                    <td className="muted">{r.responsavel_email ?? t("rfis.semDono")}</td>
                     <td className="muted">{new Date(r.created_at).toLocaleDateString()}</td>
                     <td>
                       <span className={`badge badge-${r.status_extracao === "pronto" ? "muted" : r.status_extracao === "erro" ? "vermelho" : "info"}`}>

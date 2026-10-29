@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, ProcedimentoDetail } from "@/api";
+import { rotuloCategoria } from "@/categorias";
+import { DangerZone } from "@/components/DangerZone";
 import { useLanguage } from "@/i18n";
 
 export function ProcedimentoView() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [procedimento, setProcedimento] = useState<ProcedimentoDetail | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -36,6 +39,16 @@ export function ProcedimentoView() {
         <p>
           <strong>{t("procedimentoView.tags")}</strong> {procedimento.tags.join(", ") || "—"}
         </p>
+        <p>
+          <strong>{t("procedimentoView.categorias")}</strong>{" "}
+          {procedimento.categorias.length > 0
+            ? procedimento.categorias.map((c) => (
+                <span key={c} className="chip" style={{ marginRight: 6 }}>
+                  {c} — {rotuloCategoria(c, lang)}
+                </span>
+              ))
+            : "—"}
+        </p>
       </div>
 
       <div className="card">
@@ -58,6 +71,17 @@ export function ProcedimentoView() {
           className="html-frame"
         />
       </div>
+
+      <DangerZone
+        tipo="procedimentos"
+        id={procedimento.id}
+        responsavelId={procedimento.responsavel_id}
+        responsavelEmail={procedimento.responsavel_email}
+        onResponsavelAtualizado={(responsavelId, responsavelEmail) =>
+          setProcedimento({ ...procedimento, responsavel_id: responsavelId, responsavel_email: responsavelEmail })
+        }
+        onExcluido={() => navigate("/procedimentos")}
+      />
     </div>
   );
 }

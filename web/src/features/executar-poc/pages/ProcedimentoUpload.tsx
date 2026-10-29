@@ -1,13 +1,15 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
+import { CODIGOS_CATEGORIA, rotuloCategoria } from "@/categorias";
 import { useLanguage } from "@/i18n";
 
 export function ProcedimentoUpload() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const [titulo, setTitulo] = useState("");
   const [tags, setTags] = useState("");
+  const [categorias, setCategorias] = useState<Set<string>>(new Set());
   const [clienteOrigem, setClienteOrigem] = useState("");
   const [status, setStatus] = useState("rascunho");
   const [arquivo, setArquivo] = useState<File | null>(null);
@@ -26,6 +28,7 @@ export function ProcedimentoUpload() {
       const form = new FormData();
       form.append("titulo", titulo);
       form.append("tags", tags);
+      form.append("categorias", [...categorias].join(","));
       form.append("cliente_origem", clienteOrigem);
       form.append("status", status);
       form.append("arquivo", arquivo);
@@ -66,6 +69,29 @@ export function ProcedimentoUpload() {
               placeholder={t("procedimentoUpload.tagsPlaceholder")}
             />
             <p className="field-hint">{t("procedimentoUpload.tagsHint")}</p>
+          </div>
+          <div className="field">
+            <label>{t("procedimentoUpload.labelCategorias")}</label>
+            <div className="chip-filter-group">
+              {CODIGOS_CATEGORIA.map((codigo) => (
+                <button
+                  key={codigo}
+                  type="button"
+                  className={`chip-filter${categorias.has(codigo) ? " active" : ""}`}
+                  onClick={() =>
+                    setCategorias((atual) => {
+                      const novo = new Set(atual);
+                      if (novo.has(codigo)) novo.delete(codigo);
+                      else novo.add(codigo);
+                      return novo;
+                    })
+                  }
+                >
+                  {codigo} — {rotuloCategoria(codigo, lang)}
+                </button>
+              ))}
+            </div>
+            <p className="field-hint">{t("procedimentoUpload.categoriasHint")}</p>
           </div>
           <div className="field">
             <label htmlFor="cliente">{t("procedimentoUpload.labelClienteOrigem")}</label>

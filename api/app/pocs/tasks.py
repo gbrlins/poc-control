@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from app.categorias import normalizar as normalizar_categoria
 from app.db import SessionLocal
 from app.gemini import (
     extrair_itens_poc,
@@ -86,6 +87,7 @@ def processar_extracao(
                     descricao=item.descricao,
                     criterio_aceite=item.criterio_aceite,
                     categoria=item.categoria,
+                    categoria_codigo=normalizar_categoria(item.categoria_codigo),
                     fase=item.fase,
                     ref=item.ref or None,
                     ordem=i,
@@ -150,6 +152,7 @@ def _criar_itens_do_planejador(db, poc: Poc, planejador: dict) -> None:
             titulo=d["titulo"],
             criterio_aceite=d["criterio_aceite"],
             categoria=d["categoria"],
+            categoria_codigo=d.get("categoria_codigo"),
             fase=d["fase"],
             ordem=i,
             catalogo_id=d["catalogo_id"],

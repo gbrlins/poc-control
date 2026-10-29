@@ -127,6 +127,7 @@ class ItemOut(BaseModel):
     descricao: str | None
     criterio_aceite: str | None
     categoria: str | None
+    categoria_codigo: str | None = None
     fase: int
     ref: str | None
     conducao: CondicaoItem | None
@@ -150,6 +151,7 @@ class ItemUpdate(BaseModel):
     descricao: str | None = None
     criterio_aceite: str | None = None
     categoria: str | None = None
+    categoria_codigo: str | None = None
     fase: int | None = None
     ref: str | None = None
     conducao: CondicaoItem | None = None
@@ -174,6 +176,7 @@ class PocListItem(BaseModel):
     total_itens: int
     itens_concluidos: int
     responsavel_id: uuid.UUID | None = None
+    responsavel_email: str | None = None
 
 
 class PocDetail(PocListItem):

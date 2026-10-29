@@ -13,12 +13,14 @@ class RfiItemOut(BaseModel):
     id: uuid.UUID
     codigo: str
     categoria: str | None
+    categoria_codigo: str | None = None
     descricao: str
     ordem: int
     veredito: VeredictoRfi | None
     justificativa: str | None
     fontes: list[FonteOut]
     origem: OrigemClassificacao | None
+    procedimento_id: uuid.UUID | None = None
     modelo: str | None
     created_at: datetime
 
@@ -41,6 +43,7 @@ class RfiListItem(BaseModel):
     total_itens: int
     itens_avaliados: int
     responsavel_id: uuid.UUID | None = None
+    responsavel_email: str | None = None
 
 
 class RfiDetail(RfiListItem):

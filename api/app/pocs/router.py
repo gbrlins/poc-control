@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.categorias import normalizar as normalizar_categoria
 from app.classificacao.service import classificar_item, sugerir_procedimentos
 from app.classificacao.tasks import classificar_pendentes
 from app.config import settings
@@ -83,6 +84,7 @@ def _list_item(db: Session, poc: Poc) -> PocListItem:
         total_itens=total,
         itens_concluidos=concluidos,
         responsavel_id=poc.responsavel_id,
+        responsavel_email=poc.responsavel.email if poc.responsavel else None,
     )
 
 
@@ -247,17 +249,11 @@ def importar_planejador(
 @router.get("/{poc_id}", response_model=PocDetail)
 def obter_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
     poc = _get_poc_or_404(db, poc_id)
-    total, concluidos = _contar_itens(db, poc.id)
     return PocDetail(
-        id=poc.id,
-        titulo=poc.titulo,
-        cliente=poc.cliente,
-        status=poc.status,
-        status_extracao=poc.status_extracao,
-        created_at=poc.created_at,
-        total_itens=total,
-        itens_concluidos=concluidos,
-        responsavel_id=poc.responsavel_id,
+        # Reaproveita _list_item (em vez de repetir campo a campo) -- é exatamente esse tipo de
+        # duplicação que já deixou responsavel_id de fora daqui uma vez (ver test_exclusao_db.py
+        # ::test_detalhe_mostra_o_mesmo_dono_que_a_listagem).
+        **_list_item(db, poc).model_dump(),
         escopo=poc.escopo,
         erro_extracao=poc.erro_extracao,
         modelo_extracao=poc.modelo_extracao,
@@ -473,6 +469,9 @@ def atualizar_item(poc_id: uuid.UUID, item_id: uuid.UUID, payload: ItemUpdate, d
     item = _get_item_or_404(db, poc_id, item_id)
     dados = payload.model_dump(exclude_unset=True)
     sessao_id = dados.pop("sessao_id", None)
+
+    if "categoria_codigo" in dados:
+        dados["categoria_codigo"] = normalizar_categoria(dados["categoria_codigo"])
 
     status_anterior = item.status
     resultado_anterior = item.resultado
@@ -802,6 +801,7 @@ def validar_anexo(
         db,
         titulo=item.titulo,
         tags=[item.categoria] if item.categoria else [],
+        categorias=[item.categoria_codigo] if item.categoria_codigo else [],
         cliente_origem=item.poc.cliente,
         data_origem=None,
         status_valor=StatusProcedimento.validado,
