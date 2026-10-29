@@ -175,6 +175,7 @@ def obter_rfi(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
         created_at=rfi.created_at,
         total_itens=total,
         itens_avaliados=avaliados,
+        responsavel_id=rfi.responsavel_id,
         erro_extracao=rfi.erro_extracao,
         modelo_extracao=rfi.modelo_extracao,
         nome_arquivo=rfi.nome_arquivo,

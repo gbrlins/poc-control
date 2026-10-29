@@ -259,3 +259,20 @@ def test_quem_cria_uma_poc_vira_o_dono(db, usuarios):
     como(alice).request("DELETE", f"/api/pocs/{pid}", json={"confirmar": poc.titulo})
     db.query(ResultadoCatalogo).filter(ResultadoCatalogo.catalogo_id == "cat-dono").delete()
     db.commit()
+
+
+def test_detalhe_mostra_o_mesmo_dono_que_a_listagem(db, usuarios):
+    """Bug real: o detalhe (GET /{id}) montava a resposta campo a campo e esquecia `responsavel_id`, sempre devolvendo
+    null mesmo com dono -- a listagem (que usa `_list_item` nos dois casos) já devolvia o valor certo."""
+    alice = usuarios["alice"]
+    poc = _poc(db, alice)
+    rfi = Rfi(titulo="RFI " + uuid.uuid4().hex[:6], orgao=SEGREDO_DO_CLIENTE, status_extracao=StatusExtracao.pronto,
+              nome_arquivo="e.pdf", caminho_arquivo="", criado_por_id=alice.id, responsavel_id=alice.id)
+    db.add(rfi)
+    db.commit()
+    c = como(alice)
+    assert c.get(f"/api/pocs/{poc.id}").json()["responsavel_id"] == str(alice.id)
+    assert c.get(f"/api/rfis/{rfi.id}").json()["responsavel_id"] == str(alice.id)
+    db.query(Poc).filter(Poc.id == poc.id).delete()
+    db.query(Rfi).filter(Rfi.id == rfi.id).delete()
+    db.commit()

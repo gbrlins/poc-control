@@ -257,6 +257,7 @@ def obter_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
         created_at=poc.created_at,
         total_itens=total,
         itens_concluidos=concluidos,
+        responsavel_id=poc.responsavel_id,
         escopo=poc.escopo,
         erro_extracao=poc.erro_extracao,
         modelo_extracao=poc.modelo_extracao,
