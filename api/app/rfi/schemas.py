@@ -40,6 +40,7 @@ class RfiListItem(BaseModel):
     created_at: datetime
     total_itens: int
     itens_avaliados: int
+    responsavel_id: uuid.UUID | None = None
 
 
 class RfiDetail(RfiListItem):

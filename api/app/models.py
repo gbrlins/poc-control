@@ -48,6 +48,12 @@ class Procedimento(Base):
     )
     versao: Mapped[int] = mapped_column(Integer, default=1)
     html_original: Mapped[str] = mapped_column(Text, nullable=False)
+    criado_por_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    responsavel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -109,6 +115,14 @@ class Poc(Base):
     # servidor) — exibido na UI pra confirmar qual modelo respondeu, sem precisar olhar os logs
     # do container na Raspberry.
     modelo_extracao: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Propriedade (ADR 4): o dono é `responsavel_id` -- só ele exclui e transfere; `criado_por_id` é só fato de auditoria.
+    # Nulo = sem dono (todas as PoCs anteriores à migração 0017): ninguém exclui até alguém assumir.
+    criado_por_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    responsavel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -315,11 +329,15 @@ class Rfi(Base):
     criado_por_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    responsavel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    criado_por: Mapped["User"] = relationship()
+    # Duas chaves para users (criador e responsável): a relação do criador diz qual delas usa.
+    criado_por: Mapped["User"] = relationship(foreign_keys=[criado_por_id])
     itens: Mapped[list["RfiItem"]] = relationship(
         back_populates="rfi", cascade="all, delete-orphan", order_by="RfiItem.ordem"
     )
@@ -482,3 +500,21 @@ class ResultadoCatalogo(Base):
     poc_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pocs.id", ondelete="SET NULL"), nullable=True
     )
+
+
+class Exclusao(Base):
+    """Registro de auditoria de uma exclusão permanente (ADR 4): tipo, quem, quando, o título e as contagens do que foi
+    removido. Deliberadamente SEM nome de cliente e sem conteúdo."""
+
+    __tablename__ = "exclusoes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tipo: Mapped[str] = mapped_column(String(10), nullable=False)
+    excluido_por_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    excluido_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    titulo: Mapped[str] = mapped_column(String(255), nullable=False)
+    contagens: Mapped[dict] = mapped_column(JSONB, default=dict)

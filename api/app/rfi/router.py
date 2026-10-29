@@ -3,9 +3,11 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app import exclusao as excl
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_user
@@ -44,6 +46,7 @@ def _list_item(db: Session, rfi: Rfi) -> RfiListItem:
         created_at=rfi.created_at,
         total_itens=total,
         itens_avaliados=avaliados,
+        responsavel_id=rfi.responsavel_id,
     )
 
 
@@ -125,6 +128,7 @@ def criar_rfi(
         orgao=orgao,
         status_extracao=StatusExtracao.extraindo,
         criado_por_id=current_user.id,
+        responsavel_id=current_user.id,
         nome_arquivo="",
         caminho_arquivo="",
     )
@@ -221,3 +225,50 @@ def exportar_rfi_xlsx(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{nome}"'},
     )
+
+
+class ResponsavelIn(BaseModel):
+    responsavel_id: uuid.UUID
+
+
+class ExclusaoIn(BaseModel):
+    confirmar: str
+
+
+@router.put("/{rfi_id}/responsavel")
+def definir_responsavel(
+    rfi_id: uuid.UUID,
+    payload: ResponsavelIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mesmas regras da PoC (ADR 4): o dono transfere, uma RFI sem dono pode ser assumida, o administrador reatribui."""
+    rfi = _get_rfi_or_404(db, rfi_id)
+    novo = db.get(User, payload.responsavel_id)
+    if novo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+    if not excl.pode_atribuir(current_user, rfi, novo.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Só o dono (ou um administrador) altera o responsável; uma RFI sem dono pode ser assumida.")
+    rfi.responsavel_id = novo.id
+    db.commit()
+    return {"id": rfi.id, "responsavel_id": rfi.responsavel_id}
+
+
+@router.get("/{rfi_id}/exclusao")
+def previa_exclusao(rfi_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return excl.previa(db, current_user, "rfi", _get_rfi_or_404(db, rfi_id))
+
+
+@router.delete("/{rfi_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_rfi(
+    rfi_id: uuid.UUID,
+    payload: ExclusaoIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Exclusão PERMANENTE (ADR 4): só o dono, com o título digitado em `confirmar`."""
+    rfi = _get_rfi_or_404(db, rfi_id)
+    try:
+        excl.excluir(db, current_user, "rfi", rfi, payload.confirmar)
+    except excl.ExclusaoErro as e:
+        raise HTTPException(e.status, e.mensagem)

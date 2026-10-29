@@ -28,6 +28,7 @@ def _criar_procedimento(
     versao: int,
     html: str,
     api_key: str | None = None,
+    dono_id: uuid.UUID | None = None,
 ) -> Procedimento:
     secoes = extrair_secoes(html)
     if not secoes:
@@ -41,6 +42,8 @@ def _criar_procedimento(
         status=status_valor,
         versao=versao,
         html_original=html,
+        criado_por_id=dono_id,
+        responsavel_id=dono_id,
     )
     db.add(procedimento)
 
@@ -95,6 +98,7 @@ def criar_procedimento(
         versao=versao,
         html=html,
         api_key=resolve_api_key(current_user),
+        dono_id=current_user.id,
     )
     return procedimento
 

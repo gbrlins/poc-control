@@ -173,6 +173,7 @@ class PocListItem(BaseModel):
     created_at: datetime
     total_itens: int
     itens_concluidos: int
+    responsavel_id: uuid.UUID | None = None
 
 
 class PocDetail(PocListItem):

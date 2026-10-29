@@ -283,3 +283,25 @@ varredura nunca impede a api de subir. Limites conhecidos: uma tarefa travada **
 Gemini que não volta) continua `extraindo` até o próximo reinício (não há data de início da tarefa para decidir por idade);
 RFIs recuperadas ficam em `erro`, e a RFI ainda não tem "tentar de novo" (só reavaliar item). Testes:
 `tests/test_recuperacao_db.py` (Postgres, dentro do container da api).
+
+## Propriedade e exclusão permanente (PoC e RFI)
+
+Regras da ADR 4 (`poc-planner/docs/adr/ADR-0004-ownership-deletion.md`, repo do planejador), implementadas em
+`app/exclusao.py`:
+
+- **O dono é `responsavel_id`** (`criado_por_id` é só fato de auditoria), em `pocs`, `procedimentos` e `rfis`. Quem cria vira
+  o dono. As PoCs e procedimentos anteriores à migração `0017` ficam **sem dono**; as RFIs começam com o criador como dono.
+  Todo usuário logado continua vendo tudo.
+- **Só o dono exclui**: `DELETE /api/pocs/{id}` e `DELETE /api/rfis/{id}` com corpo `{"confirmar": "<título>"}`. Nem o
+  administrador exclui a PoC de outra pessoa (403); linha sem dono também dá 403 ("assuma antes"); título errado dá 400.
+  `GET /api/pocs/{id}/exclusao` (e `/api/rfis/{id}/exclusao`) mostra o que seria removido e o que permanece, pra tela de
+  confirmação.
+- **Dono**: `PUT .../responsavel` com `{"responsavel_id"}`: o dono atual transfere; qualquer engenheiro assume uma linha
+  sem dono (só pra si); o administrador reatribui (mas não exclui).
+- **O que a exclusão faz**: uma transação grava a linha de auditoria em `exclusoes` (tipo, quem, quando, **título**,
+  contagens; sem cliente nem conteúdo) e remove as linhas (cascata); só depois remove `uploads/pocs/<id>/` ou
+  `uploads/rfis/<id>/` (pasta montada a partir do id, nunca de um caminho do banco). Falha ao apagar arquivo vai pro log e
+  não desfaz a exclusão; `python scripts/limpar_orfaos.py [--apagar]` (no container da api) acha as sobras.
+- **Sobrevivem**: o histórico anônimo `resultados_catalogo` (com `poc_id` nulo) e os procedimentos promovidos a partir dos
+  anexos da PoC (ficam para reutilização). Sem lixeira nem exclusão lógica; os dumps de backup guardam os dados por até 14
+  dias, e o que já foi enviado ao Gemini não volta. Testes: `tests/test_exclusao_db.py` (Postgres, no container da api).

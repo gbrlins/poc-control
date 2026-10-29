@@ -4,6 +4,7 @@ from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,7 @@ from app.pocs.export import montar_export_html
 from app.pocs.planilha_import import texto_de_planilha
 from app.pocs.planner_import import extrair_parametros_tecnicos
 from app.pocs.resultados import sincronizar_resultado_catalogo
+from app import exclusao as excl
 from app.procedimentos.router import _criar_procedimento
 from app.procedimentos.schemas import ProcedimentoListItem as ProcedimentoListItemOut
 from app.pocs.roteiro import montar_roteiro_html
@@ -80,6 +82,7 @@ def _list_item(db: Session, poc: Poc) -> PocListItem:
         created_at=poc.created_at,
         total_itens=total,
         itens_concluidos=concluidos,
+        responsavel_id=poc.responsavel_id,
     )
 
 
@@ -104,7 +107,7 @@ def listar_pocs(db: Session = Depends(get_db)):
 
 
 def _criar_poc_de_entrada(
-    db: Session, *, titulo: str, cliente: str, escopo: str, arquivo: UploadFile | None, texto: str | None
+    db: Session, *, titulo: str, cliente: str, escopo: str, arquivo: UploadFile | None, texto: str | None, dono: User
 ) -> tuple[Poc, bytes | None, str | None]:
     """Resolve a entrada (PDF/XLSX/CSV/texto/JSON — lida nativamente pelo Gemini no caso do \
     PDF; os demais formatos são convertidos a texto antes, incluindo planilhas via \
@@ -154,6 +157,8 @@ def _criar_poc_de_entrada(
         escopo=escopo or None,
         status_extracao=StatusExtracao.extraindo,
         parametros_tecnicos=parametros_tecnicos,
+        criado_por_id=dono.id,
+        responsavel_id=dono.id,
     )
     db.add(poc)
     db.commit()
@@ -198,7 +203,7 @@ def criar_poc(
     # app/gemini.py). Ver também importar_planejador, abaixo, pra importação a partir do
     # próprio planejador (sem título/cliente ainda definidos).
     poc, pdf_bytes, texto_final = _criar_poc_de_entrada(
-        db, titulo=titulo, cliente=cliente, escopo=escopo, arquivo=arquivo, texto=texto
+        db, titulo=titulo, cliente=cliente, escopo=escopo, arquivo=arquivo, texto=texto, dono=current_user
     )
 
     background_tasks.add_task(
@@ -223,7 +228,7 @@ def importar_planejador(
     hidratar_planejador em app/pocs/tasks.py), que também preenche \
     `parametros_tecnicos["hidratacao_planejador"]` pro front aplicar no estado do assistente."""
     poc, pdf_bytes, texto_final = _criar_poc_de_entrada(
-        db, titulo="", cliente="", escopo="", arquivo=arquivo, texto=texto
+        db, titulo="", cliente="", escopo="", arquivo=arquivo, texto=texto, dono=current_user
     )
 
     background_tasks.add_task(
@@ -262,6 +267,55 @@ def obter_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
         prerequisitos=[PrerequisitoOut.model_validate(p) for p in poc.prerequisitos],
         sessoes=[SessaoOut.model_validate(s) for s in poc.sessoes],
     )
+
+
+class ResponsavelIn(BaseModel):
+    responsavel_id: uuid.UUID
+
+
+class ExclusaoIn(BaseModel):
+    confirmar: str
+
+
+@router.put("/{poc_id}/responsavel")
+def definir_responsavel(
+    poc_id: uuid.UUID,
+    payload: ResponsavelIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Transfere o dono (só o dono atual), assume uma PoC sem dono (qualquer engenheiro, só para si) ou reatribui (administrador).
+    Regras da ADR 4; ver app/exclusao.py."""
+    poc = _get_poc_or_404(db, poc_id)
+    novo = db.get(User, payload.responsavel_id)
+    if novo is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+    if not excl.pode_atribuir(current_user, poc, novo.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Só o dono (ou um administrador) altera o responsável; uma PoC sem dono pode ser assumida.")
+    poc.responsavel_id = novo.id
+    db.commit()
+    return {"id": poc.id, "responsavel_id": poc.responsavel_id}
+
+
+@router.get("/{poc_id}/exclusao")
+def previa_exclusao(poc_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """O que uma exclusão removeria e o que ficaria (para a tela de confirmação). Não altera nada."""
+    return excl.previa(db, current_user, "poc", _get_poc_or_404(db, poc_id))
+
+
+@router.delete("/{poc_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_poc(
+    poc_id: uuid.UUID,
+    payload: ExclusaoIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Exclusão PERMANENTE (ADR 4): só o dono, com o título digitado em `confirmar`."""
+    poc = _get_poc_or_404(db, poc_id)
+    try:
+        excl.excluir(db, current_user, "poc", poc, payload.confirmar)
+    except excl.ExclusaoErro as e:
+        raise HTTPException(e.status, e.mensagem)
 
 
 @router.post("/{poc_id}/reextrair", status_code=status.HTTP_202_ACCEPTED)
@@ -753,6 +807,7 @@ def validar_anexo(
         versao=1,
         html=html,
         api_key=resolve_api_key(current_user),
+        dono_id=current_user.id,
     )
     anexo.procedimento_id = procedimento.id
     db.commit()
