@@ -29,11 +29,13 @@ function aplicarTema(iframe: HTMLIFrameElement) {
   }
 }
 
-// Procedimento.html_original (hand-uploaded, or auto-synthesized from a PoC item/RFI answer --
-// see api/app/pocs/router.py::validar_anexo and api/app/rfi/router.py::_html_da_resposta_rfi) has
-// no styling of its own, so it always rendered as a stark white page via srcDoc, regardless of
-// the app's theme. Applied via the DOM (not string-spliced into the srcDoc text) so it works
-// whether html_original is a bare fragment or a full <html> document.
+// Procedimento.html (hand-uploaded, or auto-synthesized from a PoC item/RFI answer -- see
+// api/app/pocs/router.py::validar_anexo and api/app/rfi/router.py::_html_da_resposta_rfi; resolved
+// server-side to the site's current language, possibly auto-translated -- see
+// api/app/procedimentos/router.py::_html_no_idioma) has no styling of its own, so it always
+// rendered as a stark white page via srcDoc, regardless of the app's theme. Applied via the DOM
+// (not string-spliced into the srcDoc text) so it works whether it's a bare fragment or a full
+// <html> document.
 export function HtmlFrame({ html, title, className }: { html: string; title: string; className?: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
 

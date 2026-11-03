@@ -162,6 +162,55 @@ def embed_query(texto: str, api_key: str | None = None) -> list[float]:
     return _normalize(embedding.values)
 
 
+class TraducaoProcedimento(BaseModel):
+    idioma_detectado: str
+    html_traduzido: str
+
+
+_IDIOMAS_SITE = {"pt": "português (pt-BR)", "en": "inglês", "es": "espanhol"}
+
+_TRADUCAO_PROMPT = """\
+Você traduz HTML de procedimentos técnicos (runbooks de PoC) para outro idioma, preservando a estrutura.
+
+Primeiro identifique o idioma original do HTML abaixo. Responda em idioma_detectado com um destes \
+códigos: "pt", "en", "es", ou "outro" se não for nenhum desses três.
+
+Depois traduza o conteúdo inteiro para {idioma_alvo} e devolva em html_traduzido um HTML equivalente: \
+mesmas tags, atributos, estrutura e ordem -- só o texto visível (títulos, parágrafos, itens de lista, \
+células de tabela) é traduzido. NÃO traduza nem altere: comandos de terminal, blocos de código, \
+YAML/JSON, nomes de recursos (cluster, namespace, Secret, etc.), URLs, IPs, hostnames, nomes de \
+arquivo nem outros valores técnicos literais -- eles continuam exatamente como estão no original, \
+mesmo dentro de frases traduzidas. Se o HTML já estiver em {idioma_alvo}, devolva ele praticamente \
+inalterado em html_traduzido (mesmo assim identifique idioma_detectado corretamente).
+
+HTML original:
+{html}
+"""
+
+
+def traduzir_procedimento_html(
+    html: str, idioma_alvo: str, api_key: str | None = None, model: str | None = None
+) -> TraducaoProcedimento:
+    """Detecta o idioma de um HTML de procedimento e traduz pra `idioma_alvo` ("pt"|"en"|"es"),
+    preservando tags/estrutura -- usada tanto no upload (tradução ansiosa pro inglês, ver
+    app/procedimentos/router.py::_criar_procedimento) quanto sob demanda, quando alguém visualiza
+    um procedimento num idioma ainda sem tradução em cache (router.py::_html_no_idioma)."""
+    response = _gerar_com_retry(
+        api_key=api_key,
+        contexto="traduzir_procedimento_html",
+        model=model or _TEXT_MODEL,
+        contents=[_TRADUCAO_PROMPT.format(idioma_alvo=_IDIOMAS_SITE[idioma_alvo], html=html)],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=TraducaoProcedimento,
+        ),
+    )
+    parsed = response.parsed
+    if isinstance(parsed, TraducaoProcedimento):
+        return parsed
+    return TraducaoProcedimento.model_validate_json(response.text)
+
+
 class FaseExtraida(BaseModel):
     numero: int
     titulo: str

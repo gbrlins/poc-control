@@ -1028,13 +1028,13 @@ function SessaoCard({
 }
 
 function ProcedimentoFullscreen({ procedimentoId, onClose }: { procedimentoId: string; onClose: () => void }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [procedimento, setProcedimento] = useState<ProcedimentoDetail | null>(null);
 
   useEffect(() => {
     setProcedimento(null);
-    api.obterProcedimento(procedimentoId).then(setProcedimento);
-  }, [procedimentoId]);
+    api.obterProcedimento(procedimentoId, lang).then(setProcedimento);
+  }, [procedimentoId, lang]);
 
   return (
     <div className="procedimento-fullscreen">
@@ -1046,7 +1046,7 @@ function ProcedimentoFullscreen({ procedimentoId, onClose }: { procedimentoId: s
       </div>
       {procedimento && (
         <HtmlFrame
-          html={procedimento.html_original}
+          html={procedimento.html}
           title={procedimento.titulo}
           className="html-frame html-frame-fullscreen"
         />

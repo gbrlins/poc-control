@@ -27,7 +27,9 @@ Dono: Gabriel (Solutions Architect, SUSE). Idioma da interface e dos textos gera
 A casca do app (menu, navbar, planejador) tem um seletor PT/EN/ES e alternância de tema claro/escuro (ver
 "Tema (claro/escuro) e rodapé de build" e "O planejador como tela inicial" abaixo) — isso não muda a regra
 acima para o conteúdo gerado pela IA nem para os formulários de domínio do Executar PoC/RFI, que continuam
-só em pt-BR.
+só em pt-BR. **Única exceção**: a exibição de um Procedimento acompanha esse seletor (tradução
+automática do HTML, ver "Tradução de exibição" em "Procedimentos" abaixo) -- os formulários onde ele é
+cadastrado/editado continuam em pt-BR, só o conteúdo final mostrado é que muda de idioma.
 
 ## Repositório e ambiente
 
@@ -104,6 +106,20 @@ Ao concluir um item, o usuário pode anexar ou escrever o passo a passo que func
   cai pro fallback sem filtro (nunca perde um match só por lacuna de tagueamento). Mesma lógica vale
   pro seletor manual "Importar procedimento validado" (`sugerir_procedimentos`) e pra busca do RFI (ver
   abaixo). Migração `0018`.
+- **Tradução de exibição (única exceção à regra de pt-BR do topo deste arquivo)**: o HTML de um
+  procedimento é mostrado no idioma selecionado na casca (`?lang=` em `GET /api/procedimentos/{id}`),
+  não necessariamente no idioma em que foi enviado. No upload, `_criar_procedimento`
+  (`api/app/procedimentos/router.py` -- caminho compartilhado por upload manual, sync entre
+  instâncias e promoção de item de PoC/RFI) detecta o idioma original e já traduz pro inglês de
+  forma ansiosa, numa chamada Gemini só (`gemini.py::traduzir_procedimento_html`, HTML -> HTML
+  preservando tags/estrutura, sem traduzir comandos/YAML/nomes de recursos/URLs). Os outros dois
+  idiomas (pt/es, o que não for o original) ficam preguiçosos: traduzidos na primeira vez que
+  alguém abre o procedimento nesse idioma e cacheados em `Procedimento.traducoes` (JSONB) daí em
+  diante -- nunca para quem já tem o original no idioma certo. Se a tradução sob demanda falhar,
+  cai pro original sem quebrar a página (`idioma_conteudo` no retorno diverge do `lang` pedido, e a
+  UI mostra um aviso em vez de fingir que traduziu). As extrações/classificações de PoC e RFI, os
+  formulários e os resumos de sessão continuam só em pt-BR -- é só a exibição do procedimento que
+  acompanha o idioma da casca. Migração `0026`.
 
 ### Carga inicial (pasta `seed/procedimentos/`)
 
@@ -253,6 +269,17 @@ usuário -- não têm mais um lugar próprio na casca.
   independentes, decisão deliberada: sincronizar de verdade só funcionaria dentro do mesmo
   navegador, e falsearia o aviso de privacidade do assistente de que "nunca é enviado a nenhum
   servidor".
+- **Sem header duplicada quando embutido**: o planejador tem a própria `<header>` (marca+versão,
+  "salvo às", seletor PT/EN/ES, exportar, tema), feita pra uso standalone (`/planner/` direto).
+  Dentro do iframe do poc-control ela ficava redundante com a topbar do shell (que já tem
+  marca+home, idioma e tema) — `renderHeader()` (`poc-planner/index.html`) a suprime quando
+  `EMBEDDED_NO_SHELL_THEME` (`window.self !== window.top`, mesma flag que já escondia o botão de
+  tema duplicado) é verdadeiro. O que só existia ali (salvo-às, exportar) migrou pra
+  `renderEmbeddedToolbar()`, uma faixa fina acima do `renderWizardNav()` -- só nas etapas do
+  wizard, mesmo escopo de `renderFooterBar()` (a tela inicial do planejador ainda não tem um
+  projeto "aberto" pra exportar). `exportMenuHtml()` ganhou um parâmetro de classe pro botão
+  (`btn-outline` ali, em vez do `btn-ghost` branco-sobre-escuro da header, que ficaria ilegível no
+  fundo claro do `.container`). Em uso standalone nada muda.
 
 ## Tema (claro/escuro) e rodapé de build
 
@@ -300,6 +327,10 @@ usuário -- não têm mais um lugar próprio na casca.
   bastante do que está publicado (feature grande nova, correção de segurança), rebuildar e subir
   pra lá. Na prática, pelo menos 1x por dia em dia de trabalho ativo no projeto; sem rigidez
   nenhuma se não houver mudança real pra publicar.
+- Sempre que houver uma atualização relevante no projeto — nova versão publicada, merge na
+  `main`, PR concluído/mesclado, deploy na Raspberry — mandar uma mensagem formatada avisando no
+  canal do Slack https://suse.slack.com/archives/C06UC7LAFHU, com um resumo das mudanças e o
+  status do deploy quando houver um.
 
 ## Planejador servido em `/planner/`, e também na rota `/`
 

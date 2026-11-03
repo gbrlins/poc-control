@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import date
 from html import escape as _escapar_html
@@ -10,11 +11,15 @@ from app import exclusao as excl
 from app.categorias import normalizar
 from app.db import get_db
 from app.deps import get_current_user
-from app.gemini import embed_document
+from app.gemini import embed_document, traduzir_procedimento_html
 from app.gemini_key import resolve_api_key
 from app.models import OrigemConhecimento, Procedimento, ProcedimentoChunk, StatusProcedimento, User
 from app.procedimentos.html_processing import extrair_secoes
 from app.procedimentos.schemas import ProcedimentoDetail, ProcedimentoListItem, SecaoOut
+
+logger = logging.getLogger(__name__)
+
+_IDIOMAS_SITE = ("pt", "en", "es")
 
 router = APIRouter(
     prefix="/api/procedimentos", tags=["procedimentos"], dependencies=[Depends(get_current_user)]
@@ -68,6 +73,19 @@ def _criar_procedimento(
                 embedding=embedding,
             )
         )
+
+    # Tradução ansiosa só pro inglês (as outras duas ficam preguiçosas, sob demanda -- ver
+    # _html_no_idioma): cobre o pedido mais provável de quem não leu o original em português, sem
+    # gastar Gemini com um idioma que ninguém chegue a abrir. Nunca derruba o upload: se falhar
+    # (rede, quota), fica pra tentar de novo na primeira visualização.
+    try:
+        traducao = traduzir_procedimento_html(html, "en", api_key=api_key)
+        if traducao.idioma_detectado in _IDIOMAS_SITE:
+            procedimento.idioma_original = traducao.idioma_detectado
+        if procedimento.idioma_original != "en":
+            procedimento.traducoes = {"en": traducao.html_traduzido}
+    except Exception:
+        logger.warning("Falha ao traduzir procedimento %r para inglês no upload", titulo, exc_info=True)
 
     db.commit()
     return procedimento
@@ -125,21 +143,65 @@ def _get_procedimento_or_404(db: Session, procedimento_id: uuid.UUID) -> Procedi
     return procedimento
 
 
+def _html_no_idioma(
+    db: Session, procedimento: Procedimento, lang: str, *, api_key: str | None
+) -> tuple[str, str | None]:
+    """Resolve o HTML a exibir no idioma pedido: html_original se já é esse idioma, uma tradução
+    já em cache (Procedimento.traducoes), ou traduz agora e guarda pra próxima vez. Nunca falha a
+    página por causa de tradução: se o Gemini falhar, devolve html_original e o idioma real que
+    está sendo mostrado, pra UI avisar em vez de quebrar."""
+    if procedimento.idioma_original == lang:
+        return procedimento.html_original, lang
+
+    cacheado = (procedimento.traducoes or {}).get(lang)
+    if cacheado:
+        return cacheado, lang
+
+    try:
+        traducao = traduzir_procedimento_html(procedimento.html_original, lang, api_key=api_key)
+    except Exception:
+        logger.warning("Falha ao traduzir procedimento %s para %s", procedimento.id, lang, exc_info=True)
+        return procedimento.html_original, procedimento.idioma_original
+
+    if traducao.idioma_detectado in _IDIOMAS_SITE:
+        procedimento.idioma_original = traducao.idioma_detectado
+    if procedimento.idioma_original == lang:
+        db.commit()
+        return procedimento.html_original, lang
+
+    traducoes = dict(procedimento.traducoes or {})
+    traducoes[lang] = traducao.html_traduzido
+    procedimento.traducoes = traducoes
+    db.commit()
+    return traducao.html_traduzido, lang
+
+
 @router.get("/{procedimento_id}", response_model=ProcedimentoDetail)
-def obter_procedimento(procedimento_id: uuid.UUID, db: Session = Depends(get_db)):
+def obter_procedimento(
+    procedimento_id: uuid.UUID,
+    lang: str = "pt",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     procedimento = _get_procedimento_or_404(db, procedimento_id)
+    if lang not in _IDIOMAS_SITE:
+        lang = "pt"
+    html, idioma_conteudo = _html_no_idioma(db, procedimento, lang, api_key=resolve_api_key(current_user))
 
     return ProcedimentoDetail(
         **ProcedimentoListItem.model_validate(procedimento).model_dump(),
         html_original=procedimento.html_original,
+        idioma_original=procedimento.idioma_original,
+        idioma_conteudo=idioma_conteudo,
+        html=html,
         secoes=[
             SecaoOut(
-                heading_level=c.heading_level,
-                heading_title=c.heading_title,
-                parent_heading_title=c.parent_heading_title,
-                order_index=c.order_index,
+                heading_level=s.heading_level,
+                heading_title=s.heading_title,
+                parent_heading_title=s.parent_heading_title,
+                order_index=s.order_index,
             )
-            for c in procedimento.chunks
+            for s in extrair_secoes(html)
         ],
     )
 

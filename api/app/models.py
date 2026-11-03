@@ -65,6 +65,16 @@ class Procedimento(Base):
     )
     versao: Mapped[int] = mapped_column(Integer, default=1)
     html_original: Mapped[str] = mapped_column(Text, nullable=False)
+    # Idioma detectado do html_original ("pt"|"en"|"es"), setado pela tradução automática do
+    # upload (_criar_procedimento) ou, se ela falhou, na primeira visualização que pedir um
+    # idioma de exibição (router.py::_html_no_idioma). Nulo = ainda não detectado.
+    idioma_original: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    # Cache de traduções de html_original sob demanda, por idioma do site -- nunca tem uma chave
+    # igual a idioma_original (esse caso usa html_original direto). Preenchida ansiosamente em
+    # inglês no upload e preguiçosamente pros demais idiomas, na primeira visualização de cada um
+    # (mesmas duas funções acima). JSON porque o conjunto de idiomas é pequeno e fixo
+    # (web/src/i18n.tsx), não justifica uma tabela própria. Migração 0026.
+    traducoes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # Taxonomia fixa (app/categorias.py) -- um procedimento pode cobrir mais de uma área (ex.: o
     # seed de Vault é K8S e SEC). Usado para restringir a busca vetorial por afinidade antes de
     # rankear por similaridade (classificacao/service.py::_buscar_candidatos). PGArray (não o

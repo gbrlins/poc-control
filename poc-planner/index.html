@@ -1182,22 +1182,36 @@ function renderShell(){
     + renderHeader()
     + '<div class="container">'
     + saveErrorBanner()
-    + (!isDashboard ? renderWizardNav() : '')
+    + (!isDashboard ? renderEmbeddedToolbar() + renderWizardNav() : '')
     + '<div class="fade-in" style="padding-bottom:' + (isDashboard?'0':'90px') + '">' + renderView() + '</div>'
     + '</div>'
     + (!isDashboard ? renderFooterBar() : '')
     + '</div>';
 }
 
+// O que renderHeader() mostraria (salvo-às, exportar) quando ela é suprimida por estar embutida
+// (ver EMBEDDED_NO_SHELL_THEME ali) -- só nos passos do wizard (mesmo escopo de renderWizardNav()/
+// renderFooterBar() logo abaixo: a tela inicial do planejador ainda não tem um projeto "aberto"
+// pra exportar). Em uso standalone fica vazia (esses controles já estão na header de lá).
+function renderEmbeddedToolbar(){
+  if(!EMBEDDED_NO_SHELL_THEME) return '';
+  return '<div class="flex items-center gap-3" style="justify-content:flex-end;margin-bottom:10px;">'
+    + (lastSavedAt ? '<span class="text-xs text-muted" style="white-space:nowrap;">' + Icon('check') + ' ' + tr('common.savedAt') + ' ' + fmtTime(lastSavedAt) + '</span>' : '')
+    + exportMenuHtml('btn-outline')
+  + '</div>';
+}
+
 function fmtTime(ts){
   const d = new Date(ts);
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
 }
-/* Menu único de exportação, disponível em qualquer etapa. Impressões levam à tela de Resumo, onde as folhas existem. */
-function exportMenuHtml(){
+/* Menu único de exportação, disponível em qualquer etapa. Impressões levam à tela de Resumo, onde as folhas existem.
+   triggerClass: "btn-ghost" (padrão) combina com o fundo escuro da <header>; renderEmbeddedToolbar() passa
+   "btn-outline" porque ali o menu fica sobre o fundo claro do .container, onde texto branco seria ilegível. */
+function exportMenuHtml(triggerClass){
   const g=(pt,en,es)=>({pt,en,es})[state.lang] || en;
   const item=(fn,icon,t,d)=>'<button class="export-item" onclick="this.closest(\'details\').removeAttribute(\'open\');P.'+fn+'()">'+Icon(icon)+'<span><b>'+t+'</b><small>'+d+'</small></span></button>';
-  return '<details class="export-menu no-print"><summary class="btn btn-ghost">' + Icon('download') + ' ' + tr('common.export') + '</summary><div class="export-pop">'
+  return '<details class="export-menu no-print"><summary class="btn ' + (triggerClass||'btn-ghost') + '">' + Icon('download') + ' ' + tr('common.export') + '</summary><div class="export-pop">'
     + item('exportProject','download',g('Projeto (JSON)','Project (JSON)','Proyecto (JSON)'),g('Estado completo + seção para o EIB (run.sh). Leva senhas e tokens: não compartilhe','Full state + EIB section (run.sh). Carries passwords and tokens: do not share','Estado completo + sección para EIB (run.sh). Lleva contraseñas y tokens: no lo comparta'))
     + item('exportProjectSafe','shield',g('Projeto sem segredos (JSON)','Project without secrets (JSON)','Proyecto sin secretos (JSON)'),g('Seguro para compartilhar e guardar; o run.sh pergunta as senhas que faltam','Safe to share and store; run.sh asks for the missing passwords','Seguro para compartir y guardar; run.sh pregunta las contraseñas que faltan'))
     + item('printReport','print',g('Relatório do cliente','Client report','Informe del cliente'),g('Imprimir ou salvar em PDF','Print or save as PDF','Imprimir o guardar en PDF'))
@@ -1207,6 +1221,12 @@ function exportMenuHtml(){
   + '</div></details>';
 }
 function renderHeader(){
+  // poc-control já renderiza sua própria topbar por cima deste iframe (marca+home, seletor de
+  // idioma, tema -- ver PlanPoc.tsx), então esta <header> inteira ficava duplicada visualmente
+  // embaixo dela. Suprimida só quando embutido (mesma condição do botão de tema abaixo); o que
+  // era específico daqui (salvo-às, exportar) migra pra renderEmbeddedToolbar(), mais abaixo na
+  // página, perto do conteúdo. Em uso standalone ("/planner/" direto) nada muda.
+  if(EMBEDDED_NO_SHELL_THEME) return '';
   const langs = [['pt','🇧🇷 PT'],['en','🇺🇸 EN'],['es','🇪🇸 ES']];
   return '<header class="header"><div class="header-inner">'
     + '<div class="brand" style="cursor:pointer;" title="'+tr('common.home')+'" onclick="P.go(\'dashboard\')">'

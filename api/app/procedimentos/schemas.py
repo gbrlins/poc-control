@@ -33,4 +33,10 @@ class ProcedimentoListItem(BaseModel):
 
 class ProcedimentoDetail(ProcedimentoListItem):
     html_original: str
+    idioma_original: str | None = None
+    # Idioma real do campo `html` abaixo: igual ao idioma pedido (?lang=) quando a tradução deu
+    # certo (ou já era o idioma original); cai pro idioma_original se a tradução sob demanda
+    # falhar, pra UI avisar que está mostrando outro idioma em vez de quebrar a página.
+    idioma_conteudo: str | None = None
+    html: str
     secoes: list[SecaoOut]

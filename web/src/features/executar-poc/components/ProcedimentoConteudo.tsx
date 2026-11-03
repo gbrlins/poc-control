@@ -54,9 +54,35 @@ export function ProcedimentoConteudo({ procedimento }: { procedimento: Procedime
       </div>
 
       <div className="card">
-        <h2>{t("procedimentoView.conteudoOriginal")}</h2>
-        <HtmlFrame html={procedimento.html_original} title={procedimento.titulo} className="html-frame" />
+        <div className="page-header" style={{ marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>{t("procedimentoView.conteudo")}</h2>
+          <button type="button" className="btn btn-secondary" onClick={() => baixarHtml(procedimento)}>
+            {t("procedimentoView.baixarHtml")}
+          </button>
+        </div>
+        {procedimento.idioma_conteudo && procedimento.idioma_conteudo !== lang && (
+          <p className="alert alert-error">{t("procedimentoView.falhaTraducao")}</p>
+        )}
+        {procedimento.idioma_conteudo === lang &&
+          procedimento.idioma_original &&
+          procedimento.idioma_original !== lang && (
+            <p className="field-hint">
+              {t("procedimentoView.traduzidoAutomaticamente")} ({procedimento.idioma_original})
+            </p>
+          )}
+        <HtmlFrame html={procedimento.html} title={procedimento.titulo} className="html-frame" />
       </div>
     </>
   );
+}
+
+function baixarHtml(procedimento: ProcedimentoDetail) {
+  const nome = procedimento.titulo.trim().replace(/[^\w\-]+/g, "_").replace(/^_+|_+$/g, "") || "procedimento";
+  const blob = new Blob([procedimento.html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${nome}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

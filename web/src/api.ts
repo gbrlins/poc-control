@@ -72,6 +72,11 @@ export interface Secao {
 
 export interface ProcedimentoDetail extends ProcedimentoListItem {
   html_original: string;
+  idioma_original: string | null;
+  // Idioma real do campo `html`: pode divergir do idioma pedido se a tradução sob demanda falhou
+  // (aí cai pro idioma_original, e a UI avisa em vez de fingir que traduziu).
+  idioma_conteudo: string | null;
+  html: string;
   secoes: Secao[];
 }
 
@@ -351,7 +356,8 @@ export const api = {
   listarModelosGemini: () => request<ModeloGemini[]>("/api/auth/me/gemini-models"),
 
   listarProcedimentos: () => request<ProcedimentoListItem[]>("/api/procedimentos"),
-  obterProcedimento: (id: string) => request<ProcedimentoDetail>(`/api/procedimentos/${id}`),
+  obterProcedimento: (id: string, lang: string) =>
+    request<ProcedimentoDetail>(`/api/procedimentos/${id}?lang=${lang}`),
   criarProcedimento: (form: FormData) =>
     request<ProcedimentoListItem>("/api/procedimentos", { method: "POST", body: form }),
 

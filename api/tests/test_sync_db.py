@@ -56,7 +56,16 @@ def usuario(db):
 
 @pytest.fixture(autouse=True)
 def gemini_falso(monkeypatch):
+    from app.gemini import TraducaoProcedimento
+
     monkeypatch.setattr(procedimentos_router, "embed_document", lambda texto, api_key=None: [0.1] * 1536)
+    monkeypatch.setattr(
+        procedimentos_router,
+        "traduzir_procedimento_html",
+        lambda html, idioma_alvo, api_key=None, model=None: TraducaoProcedimento(
+            idioma_detectado="pt", html_traduzido=html
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)

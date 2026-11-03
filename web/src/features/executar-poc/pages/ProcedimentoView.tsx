@@ -6,7 +6,7 @@ import { useLanguage } from "@/i18n";
 import { OrigemChip, ProcedimentoConteudo } from "../components/ProcedimentoConteudo";
 
 export function ProcedimentoView() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [procedimento, setProcedimento] = useState<ProcedimentoDetail | null>(null);
@@ -15,17 +15,21 @@ export function ProcedimentoView() {
   useEffect(() => {
     if (!id) return;
     api
-      .obterProcedimento(id)
+      .obterProcedimento(id, lang)
       .then(setProcedimento)
       .catch(() => setErro(t("procedimentoView.erroCarregar")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, lang]);
 
   if (erro) return <p className="alert alert-error">{erro}</p>;
   if (!procedimento) return <p className="muted">{t("common.carregando")}</p>;
 
   return (
     <div>
+      <button type="button" className="btn btn-secondary" style={{ marginBottom: 16 }} onClick={() => navigate("/procedimentos")}>
+        {t("procedimentoView.voltar")}
+      </button>
+
       <div className="page-header">
         <h1>{procedimento.titulo}</h1>
         <div style={{ display: "flex", gap: 8 }}>

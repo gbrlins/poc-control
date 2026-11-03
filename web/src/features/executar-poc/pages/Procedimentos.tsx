@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, OrigemConhecimento, ProcedimentoDetail, ProcedimentoListItem } from "@/api";
 import { CODIGOS_CATEGORIA, rotuloCategoria } from "@/categorias";
@@ -126,15 +126,21 @@ function ProcedimentoRow({ item }: { item: ProcedimentoListItem }) {
   const [open, setOpen] = useState(false);
   const [detalhe, setDetalhe] = useState<ProcedimentoDetail | null>(null);
   const [carregando, setCarregando] = useState(false);
+  // Evita refazer a chamada (e, se a tradução falhar, repeti-la pra sempre) sempre que `detalhe`
+  // muda de valor -- só busca de novo quando o item ou o idioma pedido de fato mudam.
+  const pedidoRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open || detalhe) return;
+    if (!open) return;
+    const chave = `${item.id}:${lang}`;
+    if (pedidoRef.current === chave) return;
+    pedidoRef.current = chave;
     setCarregando(true);
     api
-      .obterProcedimento(item.id)
+      .obterProcedimento(item.id, lang)
       .then(setDetalhe)
       .finally(() => setCarregando(false));
-  }, [open, detalhe, item.id]);
+  }, [open, item.id, lang]);
 
   return (
     <div className={open ? "item-row open" : "item-row"}>
