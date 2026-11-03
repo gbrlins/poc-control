@@ -1179,6 +1179,39 @@ textarea.input {
   background: var(--color-bg);
 }
 
+/* Procedimentos.tsx não tem a coluna de código (56px) que .item-row-head pressupõe como 1º filho
+   -- reusá-la fazia o título cair nesse slot estreito e a tag de origem esticar no 1fr seguinte
+   (inline-block estica pra preencher a célula do grid por padrão). Título primeiro e flexível,
+   tags/badges em colunas auto (largura do próprio conteúdo). */
+.procedimentos-row-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.procedimentos-row-head:hover {
+  background: var(--color-bg);
+}
+
+.item-row.open .procedimentos-row-head {
+  background: var(--color-bg);
+}
+
+.item-titulo-truncado {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .procedimentos-row-head {
+    grid-template-columns: 1fr auto;
+  }
+}
+
 .item-codigo {
   font-weight: 700;
   color: var(--color-text-muted);

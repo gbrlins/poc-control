@@ -5,6 +5,7 @@ import { CODIGOS_CATEGORIA, rotuloCategoria } from "@/categorias";
 import { useLanguage } from "@/i18n";
 import { toggleInSet } from "@/toggleInSet";
 import { OrigemChip, ProcedimentoConteudo } from "../components/ProcedimentoConteudo";
+import { SincronizarProcedimentos } from "../components/SincronizarProcedimentos";
 
 const ORIGENS: OrigemConhecimento[] = ["manual", "poc", "rfi"];
 
@@ -14,12 +15,22 @@ export function Procedimentos() {
   const [erro, setErro] = useState<string | null>(null);
   const [filtroCategorias, setFiltroCategorias] = useState<Set<string>>(new Set());
   const [filtroOrigens, setFiltroOrigens] = useState<Set<OrigemConhecimento>>(new Set());
+  const [syncDisponivel, setSyncDisponivel] = useState(false);
+  const [mostrarSync, setMostrarSync] = useState(false);
 
-  useEffect(() => {
+  function carregar() {
     api
       .listarProcedimentos()
       .then(setItens)
       .catch(() => setErro(t("procedimentos.erroCarregar")));
+  }
+
+  useEffect(() => {
+    carregar();
+    api
+      .syncConfig()
+      .then((r) => setSyncDisponivel(r.configurado))
+      .catch(() => setSyncDisponivel(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -42,10 +53,25 @@ export function Procedimentos() {
     <div>
       <div className="page-header">
         <h1>{t("procedimentos.titulo")}</h1>
-        <Link to="/procedimentos/novo" className="btn btn-primary">
-          {t("procedimentos.novoProcedimento")}
-        </Link>
+        <div style={{ display: "flex", gap: 8 }}>
+          {syncDisponivel && (
+            <button type="button" className="btn btn-secondary" onClick={() => setMostrarSync(true)}>
+              {t("procedimentos.sincronizar")}
+            </button>
+          )}
+          <Link to="/procedimentos/novo" className="btn btn-primary">
+            {t("procedimentos.novoProcedimento")}
+          </Link>
+        </div>
       </div>
+
+      {mostrarSync && itens && (
+        <SincronizarProcedimentos
+          locais={itens}
+          onClose={() => setMostrarSync(false)}
+          onMudou={carregar}
+        />
+      )}
 
       {erro && <p className="alert alert-error">{erro}</p>}
       {itens === null && !erro && <p className="muted">{t("common.carregando")}</p>}
@@ -112,8 +138,10 @@ function ProcedimentoRow({ item }: { item: ProcedimentoListItem }) {
 
   return (
     <div className={open ? "item-row open" : "item-row"}>
-      <div className="item-row-head" onClick={() => setOpen((v) => !v)}>
-        <span className="item-titulo">{item.titulo}</span>
+      <div className="procedimentos-row-head" onClick={() => setOpen((v) => !v)}>
+        <span className="item-titulo item-titulo-truncado" title={item.titulo}>
+          {item.titulo}
+        </span>
         <OrigemChip origem={item.origem_conhecimento} />
         {item.categorias.length > 0 && (
           <span className="muted" style={{ fontSize: 12 }}>

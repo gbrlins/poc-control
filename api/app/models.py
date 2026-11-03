@@ -143,6 +143,15 @@ class Poc(Base):
         Enum(StatusExtracao, name="status_extracao"), default=StatusExtracao.extraindo
     )
     erro_extracao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Início da extração em andamento (fila de documentos) -- mesmo campo/motivo do Rfi
+    # (app/rfi, "documentos podem ser adicionados muito depois da criação").
+    processamento_iniciado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # O que a extração em andamento está fazendo agora: {"fase": "lendo", "atual": n, "total": m,
+    # "nome": documento} -- mesmo formato de Rfi.progresso (app/pocs/tasks.py::processar_poc).
+    progresso: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Pedido de interrupção, lido pela tarefa em background entre um documento e outro -- mesmo
+    # mecanismo de Rfi.cancelamento_solicitado (app/pocs/tasks.py).
+    cancelamento_solicitado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     fases: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
     # Parâmetros técnicos desta PoC (produtos, rede, infra) quando a origem foi o JSON do
     # Planejar PoC — ver app/pocs/planner_import.py. Extraído direto da estrutura conhecida do
@@ -254,6 +263,12 @@ class Item(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     poc_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pocs.id", ondelete="CASCADE"), nullable=False
+    )
+    # Qual dos (agora possivelmente vários) poc_documentos gerou este item -- mesmo papel de
+    # RfiItem.documento_id, usado pra "remover este documento e seus itens" (app/pocs/router.py).
+    # Nulo em PoCs anteriores à migração 0025 cujo documento também já tiver sido removido.
+    documento_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("poc_documentos.id", ondelete="CASCADE"), nullable=True
     )
     codigo: Mapped[str] = mapped_column(String(50), nullable=False)
     titulo: Mapped[str] = mapped_column(String(500), nullable=False)

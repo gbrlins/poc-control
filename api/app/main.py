@@ -12,6 +12,7 @@ from app.pocs.router import router as pocs_router
 from app.recuperacao import recuperar_extracoes_interrompidas
 from app.procedimentos.router import router as procedimentos_router
 from app.rfi.router import router as rfi_router
+from app.sync.router import router as sync_router
 from app.users import router as users_router
 
 # Sem isso, logger.warning/info/exception dos nossos módulos (app.gemini, app.pocs.tasks etc.)
@@ -45,6 +46,7 @@ app.include_router(procedimentos_router)
 app.include_router(pocs_router)
 app.include_router(planner_router)
 app.include_router(rfi_router)
+app.include_router(sync_router)
 app.include_router(users_router)
 
 

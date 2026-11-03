@@ -2,7 +2,7 @@ import pathlib
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -34,8 +34,8 @@ from app.models import (
     User,
 )
 from app.pocs.apresentacao import montar_apresentacao_html
+from app.pocs.documentos import TEXTO_COLADO_NOME, ler_conteudo, remover_arquivo, salvar_documento
 from app.pocs.export import montar_export_html
-from app.pocs.planilha_import import texto_de_planilha
 from app.pocs.planner_import import extrair_parametros_tecnicos
 from app.pocs.resultados import sincronizar_resultado_catalogo
 from app import exclusao as excl
@@ -49,6 +49,7 @@ from app.pocs.schemas import (
     ItemUpdate,
     NotaCreate,
     PocDetail,
+    PocDocumentoOut,
     PocListItem,
     PrerequisitoOut,
     PrerequisitoUpdate,
@@ -57,7 +58,7 @@ from app.pocs.schemas import (
     SessaoImportar,
     SessaoOut,
 )
-from app.pocs.tasks import processar_extracao
+from app.pocs.tasks import iniciar_processamento, processar_poc
 
 router = APIRouter(prefix="/api/pocs", tags=["pocs"], dependencies=[Depends(get_current_user)])
 
@@ -95,6 +96,9 @@ def _list_item(db: Session, poc: Poc) -> PocListItem:
         status=poc.status,
         status_extracao=poc.status_extracao,
         created_at=poc.created_at,
+        processamento_iniciado_em=poc.processamento_iniciado_em,
+        progresso=poc.progresso,
+        cancelamento_solicitado=poc.cancelamento_solicitado,
         total_itens=total,
         itens_concluidos=concluidos,
         responsavel_id=poc.responsavel_id,
@@ -118,6 +122,51 @@ def _get_item_or_404(db: Session, poc_id: uuid.UUID, item_id: uuid.UUID) -> Item
     return item
 
 
+def _exigir_ocioso(poc: Poc) -> None:
+    if poc.status_extracao == StatusExtracao.extraindo:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A PoC ainda está sendo processada; aguarde terminar")
+
+
+def _documento_out(db: Session, doc: PocDocumento) -> PocDocumentoOut:
+    total = db.query(func.count(Item.id)).filter(Item.documento_id == doc.id).scalar() or 0
+    return PocDocumentoOut(id=doc.id, nome_arquivo=doc.nome_arquivo, created_at=doc.created_at, total_itens=total)
+
+
+def _ler_uploads(arquivos: list[UploadFile] | None, texto: str | None) -> list[tuple[str, bytes]]:
+    """Valida cada arquivo (e o texto colado, que vira mais um documento) ANTES de gravar qualquer
+    coisa, pra um arquivo ruim não deixar uma PoC pela metade. Mesmo desenho de
+    app/rfi/router.py::_ler_uploads."""
+    docs: list[tuple[str, bytes]] = []
+    for arq in arquivos or []:
+        if not arq.filename:
+            continue
+        conteudo = arq.file.read()
+        try:
+            ler_conteudo(arq.filename, conteudo)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+        docs.append((arq.filename, conteudo))
+    if (texto or "").strip():
+        docs.append((TEXTO_COLADO_NOME, texto.strip().encode("utf-8")))
+    return docs
+
+
+def _parametros_tecnicos_do_lote(docs: list[tuple[str, bytes]]) -> dict | None:
+    """Usa o primeiro documento do lote que for o JSON exportado pelo Planejar PoC (o único
+    formato de onde dá pra extrair parâmetros técnicos sem IA -- ver extrair_parametros_tecnicos).
+    PDFs e outros textos livres simplesmente não batem com o formato e são ignorados aqui."""
+    for nome, conteudo in docs:
+        try:
+            _, texto = ler_conteudo(nome, conteudo)
+        except ValueError:
+            continue
+        if texto:
+            parametros = extrair_parametros_tecnicos(texto)
+            if parametros is not None:
+                return parametros
+    return None
+
+
 @router.get("", response_model=list[PocListItem])
 def listar_pocs(db: Session = Depends(get_db)):
     pocs = db.query(Poc).order_by(Poc.created_at.desc()).all()
@@ -125,82 +174,34 @@ def listar_pocs(db: Session = Depends(get_db)):
 
 
 def _criar_poc_de_entrada(
-    db: Session, *, titulo: str, cliente: str, escopo: str, arquivo: UploadFile | None, texto: str | None, dono: User
-) -> tuple[Poc, bytes | None, str | None]:
-    """Resolve a entrada (PDF/XLSX/CSV/texto/JSON — lida nativamente pelo Gemini no caso do \
-    PDF; os demais formatos são convertidos a texto antes, incluindo planilhas via \
-    app/pocs/planilha_import.py), cria a `Poc` e grava o documento original em disco. \
+    db: Session, *, titulo: str, cliente: str, escopo: str, arquivos: list[UploadFile] | None, texto: str | None, dono: User
+) -> tuple[Poc, list[PocDocumento]]:
+    """Resolve a entrada (PDF/XLSX/CSV/texto/JSON por documento — lido nativamente pelo Gemini no \
+    caso do PDF; os demais formatos são convertidos a texto antes, incluindo planilhas via \
+    app/pocs/planilha_import.py), cria a `Poc`, grava cada documento em disco e devolve os \
+    `PocDocumento` criados para a fila de extração (app/pocs/tasks.py::processar_poc). \
     Compartilhado por `criar_poc` e `importar_planejador`, que só diferem em título/cliente \
     (já conhecidos vs. a extrair) e em qual extração o background task vai rodar."""
-    pdf_bytes: bytes | None = None
-    planilha_bytes: bytes | None = None
-    nome_arquivo: str | None = None
-    texto_arquivo: str | None = None
-
-    if arquivo is not None and arquivo.filename:
-        conteudo = arquivo.file.read()
-        if not conteudo:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Arquivo vazio")
-        nome_arquivo = arquivo.filename
-        extensao = pathlib.Path(nome_arquivo).suffix.lower()
-        if extensao == ".pdf":
-            pdf_bytes = conteudo
-        elif extensao in (".xlsx", ".csv"):
-            try:
-                texto_arquivo = texto_de_planilha(conteudo, extensao)
-            except ValueError as exc:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
-            # Guarda os bytes originais da planilha (não o texto convertido) pra salvar em
-            # disco com a extensão real — ver bloco de persistência abaixo.
-            planilha_bytes = conteudo
-        else:
-            try:
-                texto_arquivo = conteudo.decode("utf-8")
-            except UnicodeDecodeError:
-                raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST,
-                    "Não foi possível ler o arquivo como texto; envie um PDF, uma planilha XLSX/CSV, "
-                    "ou um arquivo de texto/JSON em UTF-8",
-                )
-
-    texto_final = (texto or "").strip() or texto_arquivo
-    if not pdf_bytes and not texto_final:
+    docs = _ler_uploads(arquivos, texto)
+    if not docs:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie o PDF da POC, ou cole/envie o plano de testes em texto/JSON")
-
-    parametros_tecnicos = extrair_parametros_tecnicos(texto_final) if texto_final else None
 
     poc = Poc(
         titulo=titulo,
         cliente=cliente,
         escopo=escopo or None,
-        status_extracao=StatusExtracao.extraindo,
-        parametros_tecnicos=parametros_tecnicos,
+        parametros_tecnicos=_parametros_tecnicos_do_lote(docs),
         criado_por_id=dono.id,
         responsavel_id=dono.id,
     )
+    iniciar_processamento(poc)
     db.add(poc)
+    db.flush()
+    criados = [salvar_documento(db, poc, nome, conteudo) for nome, conteudo in docs]
     db.commit()
     db.refresh(poc)
 
-    poc_dir = pathlib.Path(settings.uploads_dir) / "pocs" / str(poc.id)
-    poc_dir.mkdir(parents=True, exist_ok=True)
-    if pdf_bytes:
-        nome = nome_arquivo or "poc.pdf"
-        caminho = poc_dir / nome
-        caminho.write_bytes(pdf_bytes)
-    elif planilha_bytes:
-        nome = nome_arquivo or "plano-importado.xlsx"
-        caminho = poc_dir / nome
-        caminho.write_bytes(planilha_bytes)
-    else:
-        nome = nome_arquivo or "plano-importado.txt"
-        caminho = poc_dir / nome
-        caminho.write_text(texto_final, encoding="utf-8")
-
-    db.add(PocDocumento(poc_id=poc.id, nome_arquivo=nome, caminho_arquivo=str(caminho)))
-    db.commit()
-
-    return poc, pdf_bytes, texto_final
+    return poc, criados
 
 
 @router.post("", response_model=PocListItem, status_code=status.HTTP_201_CREATED)
@@ -209,23 +210,25 @@ def criar_poc(
     titulo: str = Form(...),
     cliente: str = Form(...),
     escopo: str = Form(""),
-    arquivo: UploadFile | None = File(None),
+    arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Entrada aceita PDF (upload original, lido nativamente pelo Gemini) OU texto/JSON/XLSX/CSV
+    # Entrada aceita PDF(s) (upload original, lido nativamente pelo Gemini) e/ou texto/JSON/XLSX/CSV
     # — este último grupo cobre colar o plano de testes em texto, subir o JSON exportado pelo
     # "Planejar PoC" (botão "Exportar Projeto" na etapa Resumo), ou subir uma planilha de
-    # caderno de testes. O Gemini sabe interpretar todos esses formatos (ver prompt em
-    # app/gemini.py). Ver também importar_planejador, abaixo, pra importação a partir do
-    # próprio planejador (sem título/cliente ainda definidos).
-    poc, pdf_bytes, texto_final = _criar_poc_de_entrada(
-        db, titulo=titulo, cliente=cliente, escopo=escopo, arquivo=arquivo, texto=texto, dono=current_user
+    # caderno de testes. Cada documento é extraído em sequência, numa fila em segundo plano (ver
+    # app/pocs/tasks.py::processar_poc) -- dá pra mandar vários de uma vez (ex.: o PDF do edital +
+    # uma planilha complementar) e a falha de um não trava os demais. O Gemini sabe interpretar
+    # todos esses formatos (ver prompt em app/gemini.py). Ver também importar_planejador, abaixo,
+    # pra importação a partir do próprio planejador (sem título/cliente ainda definidos).
+    poc, criados = _criar_poc_de_entrada(
+        db, titulo=titulo, cliente=cliente, escopo=escopo, arquivos=arquivos, texto=texto, dono=current_user
     )
 
     background_tasks.add_task(
-        processar_extracao, poc.id, pdf_bytes, texto_final, resolve_api_key(current_user), resolve_model(current_user)
+        processar_poc, poc.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user)
     )
 
     return _list_item(db, poc)
@@ -244,21 +247,77 @@ def importar_planejador(
     Resumo, que manda o próprio JSON exportado do estado em andamento). Ao contrário de \
     `criar_poc`, título/cliente ainda não existem -- o Gemini sugere os dois (ver \
     hidratar_planejador em app/pocs/tasks.py), que também preenche \
-    `parametros_tecnicos["hidratacao_planejador"]` pro front aplicar no estado do assistente."""
-    poc, pdf_bytes, texto_final = _criar_poc_de_entrada(
-        db, titulo="", cliente="", escopo="", arquivo=arquivo, texto=texto, dono=current_user
+    `parametros_tecnicos["hidratacao_planejador"]` pro front aplicar no estado do assistente.
+    Sempre um documento só (o planejador nunca manda mais de um nesta chamada)."""
+    poc, criados = _criar_poc_de_entrada(
+        db, titulo="", cliente="", escopo="", arquivos=[arquivo] if arquivo else None, texto=texto, dono=current_user
     )
 
     background_tasks.add_task(
-        processar_extracao,
+        processar_poc,
         poc.id,
-        pdf_bytes,
-        texto_final,
+        [d.id for d in criados],
         resolve_api_key(current_user),
         resolve_model(current_user),
         hidratar_planejador=True,
     )
 
+    return _list_item(db, poc)
+
+
+@router.post("/{poc_id}/documentos", response_model=PocListItem, status_code=status.HTTP_202_ACCEPTED)
+def adicionar_documentos(
+    poc_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    arquivos: list[UploadFile] | None = File(None),
+    texto: str | None = Form(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Anexa documentos a uma PoC existente: extrai só os itens NOVOS (os existentes não são
+    tocados). Mesmo desenho de app/rfi/router.py::adicionar_documentos."""
+    poc = _get_poc_or_404(db, poc_id)
+    _exigir_ocioso(poc)
+    docs = _ler_uploads(arquivos, texto)
+    if not docs:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie ao menos um documento, ou cole o texto")
+    criados = [salvar_documento(db, poc, nome, conteudo) for nome, conteudo in docs]
+    iniciar_processamento(poc)
+    db.commit()
+    background_tasks.add_task(
+        processar_poc, poc.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user)
+    )
+    return _list_item(db, poc)
+
+
+@router.delete("/{poc_id}/documentos/{documento_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remover_documento(poc_id: uuid.UUID, documento_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Remove o documento, o arquivo e todos os itens extraídos dele. Mesmo desenho de
+    app/rfi/router.py::remover_documento."""
+    poc = _get_poc_or_404(db, poc_id)
+    _exigir_ocioso(poc)
+    doc = db.get(PocDocumento, documento_id)
+    if doc is None or doc.poc_id != poc_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+    # Remove os itens explicitamente (não só pelo ON DELETE CASCADE do banco): o ORM não tem
+    # relationship Documento->Itens, então só assim a sessão fica consistente.
+    db.query(Item).filter(Item.documento_id == doc.id).delete(synchronize_session=False)
+    remover_arquivo(doc)
+    db.delete(doc)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{poc_id}/cancelar", response_model=PocListItem, status_code=status.HTTP_202_ACCEPTED)
+def cancelar_processamento(poc_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Pede a interrupção do processamento em andamento. A tarefa em background confere o pedido
+    entre um documento e outro e para; uma chamada já em curso ao Gemini termina antes. Mesmo
+    desenho de app/rfi/router.py::cancelar_processamento."""
+    poc = _get_poc_or_404(db, poc_id)
+    if poc.status_extracao != StatusExtracao.extraindo:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Não há processamento em andamento nesta PoC")
+    poc.cancelamento_solicitado = True
+    db.commit()
     return _list_item(db, poc)
 
 
@@ -279,6 +338,7 @@ def obter_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
         itens=[ItemOut.model_validate(i) for i in poc.itens],
         prerequisitos=[PrerequisitoOut.model_validate(p) for p in poc.prerequisitos],
         sessoes=[SessaoOut.model_validate(s) for s in poc.sessoes],
+        documentos=[_documento_out(db, d) for d in poc.documentos],
     )
 
 
@@ -339,44 +399,24 @@ def reextrair_poc(
     current_user: User = Depends(get_current_user),
 ):
     """Tenta de novo a extração de itens de uma PoC cujo status_extracao ficou 'erro' (ex.: o
-    Gemini respondeu 503 por sobrecarga) -- sem precisar recriar a PoC do zero. Relê o
-    documento original salvo em disco (PDF ou texto/JSON) e refaz a extração em segundo plano."""
+    Gemini respondeu 503 por sobrecarga) -- sem precisar recriar a PoC do zero. Só chega a `erro`
+    quando TODOS os documentos falharam (ver app/pocs/tasks.py::processar_poc), então reprocessa
+    a fila inteira; cada documento relê o próprio arquivo do disco."""
     poc = _get_poc_or_404(db, poc_id)
     if poc.status_extracao != StatusExtracao.erro:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Só é possível reprocessar uma PoC cuja extração falhou"
         )
-
-    documento = poc.documentos[-1] if poc.documentos else None
-    if documento is None:
+    if not poc.documentos:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Esta PoC não tem documento original para reprocessar")
 
-    caminho = pathlib.Path(documento.caminho_arquivo)
-    if not caminho.exists():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "O arquivo original não foi encontrado em disco")
-
-    pdf_bytes: bytes | None = None
-    texto: str | None = None
-    extensao = caminho.suffix.lower()
-    if extensao == ".pdf":
-        pdf_bytes = caminho.read_bytes()
-    elif extensao in (".xlsx", ".csv"):
-        try:
-            texto = texto_de_planilha(caminho.read_bytes(), extensao)
-        except ValueError as exc:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
-    else:
-        texto = caminho.read_text(encoding="utf-8")
-
-    poc.status_extracao = StatusExtracao.extraindo
-    poc.erro_extracao = None
+    iniciar_processamento(poc)
     db.commit()
 
     background_tasks.add_task(
-        processar_extracao,
+        processar_poc,
         poc.id,
-        pdf_bytes,
-        texto,
+        [d.id for d in poc.documentos],
         resolve_api_key(current_user),
         resolve_model(current_user),
         # Só importar_planejador cria a Poc com título vazio -- se a primeira extração falhou

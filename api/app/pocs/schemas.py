@@ -23,6 +23,13 @@ class FaseOut(BaseModel):
     descricao: str
 
 
+class PocDocumentoOut(BaseModel):
+    id: uuid.UUID
+    nome_arquivo: str
+    created_at: datetime
+    total_itens: int
+
+
 class PrerequisitoOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -123,6 +130,7 @@ class ItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    documento_id: uuid.UUID | None = None
     codigo: str
     titulo: str
     descricao: str | None
@@ -174,6 +182,9 @@ class PocListItem(BaseModel):
     status: StatusPoc
     status_extracao: StatusExtracao
     created_at: datetime
+    processamento_iniciado_em: datetime | None = None
+    progresso: dict | None = None
+    cancelamento_solicitado: bool = False
     total_itens: int
     itens_concluidos: int
     responsavel_id: uuid.UUID | None = None
@@ -192,6 +203,7 @@ class PocDetail(PocListItem):
     itens: list[ItemOut]
     prerequisitos: list[PrerequisitoOut]
     sessoes: list[SessaoOut]
+    documentos: list[PocDocumentoOut]
 
 
 class ResumoExecutivoUpdate(BaseModel):

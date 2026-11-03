@@ -117,7 +117,7 @@ def atualizar_embedding_historico(db: Session, item: Item, api_key: str | None) 
     effort: uma falha ao chamar o Gemini aqui nunca pode quebrar a atualização do item em si.
 
     Não é chamada na importação em lote de itens do planejador
-    (app/pocs/tasks.py::_criar_itens_do_planejador) -- aquele caminho é deliberadamente sem
+    (app/pocs/tasks.py::_aplicar_planejador) -- aquele caminho é deliberadamente sem
     Gemini; itens de lá só ganham embedding na próxima vez que algo no PATCH acima mudar (ex.:
     reabrir e fechar o item de novo), não no momento da importação."""
     if not item_executado_sem_problemas(db, item):

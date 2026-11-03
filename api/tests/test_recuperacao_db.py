@@ -94,10 +94,11 @@ def test_ao_subir_a_api_recupera_e_o_tentar_de_novo_volta_a_funcionar(db, limpo,
     preso = _poc(db, limpo, StatusExtracao.extraindo)
     arquivo = tmp_path / "plano.txt"
     arquivo.write_text("texto do plano")
-    db.add(PocDocumento(poc_id=preso.id, nome_arquivo="plano.txt", caminho_arquivo=str(arquivo)))
+    doc = PocDocumento(poc_id=preso.id, nome_arquivo="plano.txt", caminho_arquivo=str(arquivo))
+    db.add(doc)
     db.commit()
     chamadas = []
-    monkeypatch.setattr(pocs_router, "processar_extracao", lambda *a, **k: chamadas.append((a, k)))
+    monkeypatch.setattr(pocs_router, "processar_poc", lambda *a, **k: chamadas.append((a, k)))
     app.dependency_overrides[get_current_user] = lambda: _U()
     try:
         with TestClient(app) as c:  # entrar no contexto dispara o lifespan (a "inicialização")
@@ -107,7 +108,7 @@ def test_ao_subir_a_api_recupera_e_o_tentar_de_novo_volta_a_funcionar(db, limpo,
             assert r.status_code == 202, "o botão de nova tentativa, que só aceitava erro, agora alcança a PoC"
         db.expire_all()
         assert db.get(Poc, preso.id).status_extracao == StatusExtracao.extraindo and db.get(Poc, preso.id).erro_extracao is None
-        assert len(chamadas) == 1 and chamadas[0][0][0] == preso.id and chamadas[0][0][2] == "texto do plano"
+        assert len(chamadas) == 1 and chamadas[0][0][0] == preso.id and chamadas[0][0][1] == [doc.id]
     finally:
         app.dependency_overrides.clear()
 

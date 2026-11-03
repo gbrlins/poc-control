@@ -22,6 +22,18 @@ class Settings(BaseSettings):
     # Desligue se rodar a api com mais de um worker (senão um worker derruba tarefas vivas do outro).
     extracao_recuperar_no_inicio: bool = True
 
+    # Sincronização de Procedimentos com outra instância do poc-control (ex.: local <-> servidor de
+    # produção) -- ver app/sync/. Vazio por padrão: a funcionalidade fica escondida no front
+    # (GET /api/sync/config) até os três estarem preenchidos. A senha nunca trafega pro navegador --
+    # só este processo da api loga no servidor remoto.
+    sync_servidor_url: str = ""
+    sync_servidor_email: str = ""
+    sync_servidor_senha: str = ""
+
+    @property
+    def sync_configurado(self) -> bool:
+        return bool(self.sync_servidor_url and self.sync_servidor_email and self.sync_servidor_senha)
+
     @property
     def database_url(self) -> str:
         return (

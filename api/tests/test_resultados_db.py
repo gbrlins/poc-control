@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.deps import get_current_user  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Item, Poc, ResultadoCatalogo, StatusExtracao, StatusHistorico, StatusItem  # noqa: E402
-from app.pocs.tasks import _criar_itens_do_planejador  # noqa: E402
+from app.pocs.tasks import _aplicar_planejador  # noqa: E402
 from app.pocs.planner_import import itens_do_planejador  # noqa: E402
 
 
@@ -47,7 +47,13 @@ def _poc_com(db, marca, testes):
     poc = Poc(titulo="", cliente="", status_extracao=StatusExtracao.extraindo)
     db.add(poc)
     db.commit()
-    _criar_itens_do_planejador(db, poc, itens_do_planejador(texto))
+    # documento_id=None: este teste não grava um PocDocumento de verdade, só o efeito colateral
+    # de _aplicar_planejador em itens/fases. O status final (pronto) é responsabilidade de quem
+    # orquestra a fila (app/pocs/tasks.py::processar_poc), não da função por documento -- simulado
+    # aqui pra bater com o fluxo real.
+    _aplicar_planejador(db, poc, None, itens_do_planejador(texto))
+    poc.status_extracao = StatusExtracao.pronto
+    db.commit()
     db.refresh(poc)
     return poc
 

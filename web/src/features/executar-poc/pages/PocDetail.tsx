@@ -7,13 +7,16 @@ import {
   FlagClassificacao,
   ItemPoc,
   PocDetail as PocDetailData,
+  PocDocumentoOut,
   ProcedimentoDetail,
   ProcedimentoListItem,
   Sessao,
   StatusItem,
 } from "@/api";
 import { CODIGOS_CATEGORIA, rotuloCategoria } from "@/categorias";
+import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { DangerZone } from "@/components/DangerZone";
+import { ProcessamentoEmLote } from "@/components/ProcessamentoEmLote";
 import { HtmlFrame } from "@/HtmlFrame";
 import { useLanguage } from "@/i18n";
 import { toggleInSet } from "@/toggleInSet";
@@ -67,6 +70,90 @@ function faseTitulo(fases: Fase[], numero: number) {
 
 function faseDescricao(fases: Fase[], numero: number) {
   return fases.find((f) => f.numero === numero)?.descricao ?? "";
+}
+
+// Mesmo desenho de RfiDocumentos (RfiDetail.tsx): anexar mais documentos a uma PoC existente,
+// cada um extraído em fila em segundo plano (app/pocs/tasks.py::processar_poc).
+function PocDocumentos({
+  poc,
+  bloqueado,
+  onMudou,
+}: {
+  poc: PocDetailData;
+  bloqueado: boolean;
+  onMudou: () => void;
+}) {
+  const { t } = useLanguage();
+  const [enviando, setEnviando] = useState(false);
+  const ocupado = enviando || bloqueado; // enquanto a PoC processa, a API recusa mudanças (409)
+  const [erro, setErro] = useState<string | null>(null);
+  const [pendentes, setPendentes] = useState<File[]>([]);
+
+  async function executar(acao: () => Promise<unknown>) {
+    setEnviando(true);
+    setErro(null);
+    try {
+      await acao();
+      onMudou();
+    } catch {
+      setErro(t("pocDetail.erroDocumentos"));
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  function enviar() {
+    const form = new FormData();
+    pendentes.forEach((a) => form.append("arquivos", a));
+    void executar(async () => {
+      await api.adicionarDocumentosPoc(poc.id, form);
+      setPendentes([]);
+    });
+  }
+
+  function remover(doc: PocDocumentoOut) {
+    const msg = t("pocDetail.confirmarRemoverDocumento").replace("{nome}", doc.nome_arquivo).replace("{n}", String(doc.total_itens));
+    if (!window.confirm(msg)) return;
+    void executar(() => api.removerDocumentoPoc(poc.id, doc.id));
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <h3 style={{ marginTop: 0 }}>{t("pocDetail.documentos")}</h3>
+      <ul style={{ margin: "0 0 12px", paddingLeft: 0, listStyle: "none" }}>
+        {poc.documentos.map((doc) => (
+          <li key={doc.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "4px 0" }}>
+            <span style={{ flex: 1 }}>{doc.nome_arquivo}</span>
+            <span className="muted">{t("pocDetail.itensDoDocumento").replace("{n}", String(doc.total_itens))}</span>
+            <button type="button" className="btn btn-secondary" disabled={ocupado} onClick={() => remover(doc)}>
+              {t("pocDetail.removerDocumento")}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <BatchDocumentUploader
+        files={pendentes}
+        onFilesChange={setPendentes}
+        accept=".pdf,.json,.txt,.md,.xlsx,.csv"
+        disabled={ocupado}
+        selectLabel={t("pocDetail.selecionarArquivos")}
+        removeLabel={t("pocDetail.removerDocumento")}
+        newBadgeLabel={t("pocDetail.novo")}
+      />
+      {pendentes.length > 0 && (
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={ocupado}
+          onClick={enviar}
+          style={{ marginTop: 12 }}
+        >
+          {enviando ? t("pocDetail.adicionando") : t("pocDetail.enviarPendentes").replace("{n}", String(pendentes.length))}
+        </button>
+      )}
+      {erro && <p className="alert alert-error">{erro}</p>}
+    </div>
+  );
 }
 
 export function PocDetail() {
@@ -181,7 +268,7 @@ export function PocDetail() {
   }
 
   const elapsedSeconds = useElapsedSeconds(
-    poc && poc.status_extracao === "extraindo" ? poc.created_at : undefined,
+    poc && poc.status_extracao === "extraindo" ? (poc.processamento_iniciado_em ?? poc.created_at) : undefined,
   );
 
   if (erro) return <p className="alert alert-error">{erro}</p>;
@@ -256,8 +343,28 @@ export function PocDetail() {
       </div>
 
       {poc.status_extracao === "extraindo" && (
-        <p className="alert alert-success">
-          {t("pocDetail.extraindo").replace("{tempo}", formatElapsed(elapsedSeconds))}
+        <ProcessamentoEmLote
+          mensagemProcessando={t("pocDetail.extraindo").replace("{tempo}", formatElapsed(elapsedSeconds))}
+          statusLinha={
+            poc.cancelamento_solicitado
+              ? t("pocDetail.cancelando")
+              : poc.progresso
+                ? t(`pocDetail.fase.${poc.progresso.fase}`)
+                    .replace("{atual}", String(poc.progresso.atual))
+                    .replace("{total}", String(poc.progresso.total))
+                    .replace("{nome}", poc.progresso.nome)
+                : t("pocDetail.iniciando")
+          }
+          cancelamentoSolicitado={poc.cancelamento_solicitado}
+          rotuloCancelar={t("pocDetail.cancelar")}
+          onCancelar={() => void api.cancelarPoc(poc.id).then(carregar)}
+        />
+      )}
+      {poc.status_extracao === "pronto" && poc.erro_extracao && (
+        <p className="alert alert-warning" style={{ whiteSpace: "pre-line" }}>
+          {t("pocDetail.avisoExtracao")}
+          {"\n"}
+          {poc.erro_extracao}
         </p>
       )}
       {poc.status_extracao === "pronto" && poc.modelo_extracao && (
@@ -279,6 +386,8 @@ export function PocDetail() {
           </button>
         </p>
       )}
+
+      <PocDocumentos poc={poc} bloqueado={poc.status_extracao === "extraindo"} onMudou={carregar} />
 
       <div className="poc-tabs">
         {TAB_IDS.map((tid) => (

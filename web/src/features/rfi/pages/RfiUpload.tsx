@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
+import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { useLanguage } from "@/i18n";
 
 type Modo = "arquivo" | "texto";
@@ -88,37 +89,13 @@ export function RfiUpload() {
 
             {modo === "arquivo" ? (
               <>
-                <input
-                  id="arquivo"
-                  type="file"
-                  multiple
+                <BatchDocumentUploader
+                  files={arquivos}
+                  onFilesChange={setArquivos}
                   accept=".pdf,.docx,.xlsx,.csv,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain,text/markdown"
-                  onChange={(e) => {
-                    // Acumula entre seleções (o input nativo substituiria a lista); ignora repetidos.
-                    const novos = Array.from(e.target.files ?? []);
-                    setArquivos((prev) => [
-                      ...prev,
-                      ...novos.filter((n) => !prev.some((p) => p.name === n.name && p.size === n.size)),
-                    ]);
-                    e.target.value = "";
-                  }}
+                  selectLabel={t("rfiUpload.adicionarMais")}
+                  removeLabel={t("rfiUpload.remover")}
                 />
-                {arquivos.length > 0 && (
-                  <ul style={{ margin: "8px 0", paddingLeft: 0, listStyle: "none" }}>
-                    {arquivos.map((a, i) => (
-                      <li key={`${a.name}-${i}`} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <span style={{ flex: 1 }}>{a.name}</span>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          onClick={() => setArquivos((prev) => prev.filter((_, j) => j !== i))}
-                        >
-                          {t("rfiUpload.remover")}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
                 <p className="field-hint">{t("rfiUpload.hintArquivo")}</p>
               </>
             ) : (

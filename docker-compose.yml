@@ -24,6 +24,9 @@ services:
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?Run scripts/init-env.sh to create .env}
       SESSION_SECRET: ${SESSION_SECRET:?Run scripts/init-env.sh to create .env}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      SYNC_SERVIDOR_URL: ${SYNC_SERVIDOR_URL:-}
+      SYNC_SERVIDOR_EMAIL: ${SYNC_SERVIDOR_EMAIL:-}
+      SYNC_SERVIDOR_SENHA: ${SYNC_SERVIDOR_SENHA:-}
     volumes:
       # :Z relabels these host directories for the container's SELinux context (needed on
       # SELinux-enforcing hosts, e.g. SLES -- without it the api container gets a plain

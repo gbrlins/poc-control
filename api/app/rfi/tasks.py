@@ -95,7 +95,10 @@ def processar_rfi(
             return
 
         rfi.modelo_extracao = modelo_efetivo(model)
-        proxima_ordem = (db.query(func.max(RfiItem.ordem)).filter(RfiItem.rfi_id == rfi.id).scalar() or -1) + 1
+        # `or -1` quebraria quando o maior ordem existente for 0 (0 é falsy em Python, cairia no
+        # -1 do fallback e repetiria ordem=0 no 2º documento) -- comparação explícita com None.
+        maior_ordem = db.query(func.max(RfiItem.ordem)).filter(RfiItem.rfi_id == rfi.id).scalar()
+        proxima_ordem = 0 if maior_ordem is None else maior_ordem + 1
 
         itens_novos: list[RfiItem] = []
         erros: list[str] = []

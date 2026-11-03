@@ -56,6 +56,13 @@ export interface ProcedimentoListItem {
   criado_por_email: string | null;
 }
 
+export interface ResultadoSincronizacao {
+  id: string;
+  titulo: string;
+  status: "baixado" | "enviado" | "erro";
+  erro: string | null;
+}
+
 export interface Secao {
   heading_level: number;
   heading_title: string;
@@ -80,12 +87,22 @@ export interface PocListItem {
   status: StatusPoc;
   status_extracao: StatusExtracao;
   created_at: string;
+  processamento_iniciado_em: string | null;
+  progresso: { fase: "lendo"; atual: number; total: number; nome: string } | null;
+  cancelamento_solicitado: boolean;
   total_itens: number;
   itens_concluidos: number;
   responsavel_id: string | null;
   responsavel_email: string | null;
   criado_por_email: string | null;
   produtos: string[];
+}
+
+export interface PocDocumentoOut {
+  id: string;
+  nome_arquivo: string;
+  created_at: string;
+  total_itens: number;
 }
 
 export interface Fase {
@@ -161,6 +178,7 @@ export interface StatusHistoricoEntry {
 
 export interface ItemPoc {
   id: string;
+  documento_id: string | null;
   codigo: string;
   titulo: string;
   descricao: string | null;
@@ -220,6 +238,7 @@ export interface PocDetail extends PocListItem {
   itens: ItemPoc[];
   prerequisitos: PrerequisitoPoc[];
   sessoes: Sessao[];
+  documentos: PocDocumentoOut[];
 }
 
 export interface ItemUpdatePayload {
@@ -336,6 +355,13 @@ export const api = {
   criarProcedimento: (form: FormData) =>
     request<ProcedimentoListItem>("/api/procedimentos", { method: "POST", body: form }),
 
+  syncConfig: () => request<{ configurado: boolean }>("/api/sync/config"),
+  listarProcedimentosRemotos: () => request<ProcedimentoListItem[]>("/api/sync/remoto/procedimentos"),
+  baixarProcedimentosDoServidor: (ids: string[]) =>
+    request<ResultadoSincronizacao[]>("/api/sync/remoto/baixar", { method: "POST", body: JSON.stringify({ ids }) }),
+  enviarProcedimentosParaServidor: (ids: string[]) =>
+    request<ResultadoSincronizacao[]>("/api/sync/local/enviar", { method: "POST", body: JSON.stringify({ ids }) }),
+
   listarUsuarios: () => request<UsuarioListItem[]>("/api/users"),
   criarUsuario: (email: string, password: string, isAdmin: boolean) =>
     request<UsuarioListItem>("/api/users", {
@@ -353,6 +379,11 @@ export const api = {
   criarPoc: (form: FormData) => request<PocListItem>("/api/pocs", { method: "POST", body: form }),
   reextrairPoc: (pocId: string) =>
     request<{ status: string }>(`/api/pocs/${pocId}/reextrair`, { method: "POST" }),
+  adicionarDocumentosPoc: (pocId: string, form: FormData) =>
+    request<PocListItem>(`/api/pocs/${pocId}/documentos`, { method: "POST", body: form }),
+  removerDocumentoPoc: (pocId: string, documentoId: string) =>
+    request<void>(`/api/pocs/${pocId}/documentos/${documentoId}`, { method: "DELETE" }),
+  cancelarPoc: (pocId: string) => request<PocListItem>(`/api/pocs/${pocId}/cancelar`, { method: "POST" }),
   atualizarItem: (pocId: string, itemId: string, payload: ItemUpdatePayload) =>
     request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}`, {
       method: "PATCH",

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/api";
+import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { useLanguage } from "@/i18n";
 
 type Modo = "arquivo" | "texto";
@@ -12,14 +13,14 @@ export function PocUpload() {
   const [cliente, setCliente] = useState("");
   const [escopo, setEscopo] = useState("");
   const [modo, setModo] = useState<Modo>("arquivo");
-  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [arquivos, setArquivos] = useState<File[]>([]);
   const [texto, setTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (modo === "arquivo" && !arquivo) {
+    if (modo === "arquivo" && arquivos.length === 0) {
       setErro(t("pocUpload.erroSelecione"));
       return;
     }
@@ -34,7 +35,7 @@ export function PocUpload() {
       form.append("titulo", titulo);
       form.append("cliente", cliente);
       form.append("escopo", escopo);
-      if (modo === "arquivo" && arquivo) form.append("arquivo", arquivo);
+      if (modo === "arquivo") arquivos.forEach((a) => form.append("arquivos", a));
       if (modo === "texto") form.append("texto", texto);
       const criado = await api.criarPoc(form);
       navigate(`/pocs/${criado.id}`);
@@ -106,11 +107,12 @@ export function PocUpload() {
 
             {modo === "arquivo" ? (
               <>
-                <input
-                  id="arquivo"
-                  type="file"
+                <BatchDocumentUploader
+                  files={arquivos}
+                  onFilesChange={setArquivos}
                   accept=".pdf,.json,.txt,.md,.xlsx,.csv,application/pdf,application/json,text/plain,text/markdown,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+                  selectLabel={t("pocUpload.adicionarMais")}
+                  removeLabel={t("pocUpload.remover")}
                 />
                 <p className="field-hint">
                   {t("pocUpload.hintArquivo1")}

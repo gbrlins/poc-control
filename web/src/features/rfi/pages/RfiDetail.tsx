@@ -1,8 +1,10 @@
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, RfiDetail as RfiDetailData, RfiDocumentoOut, RfiItemOut, VeredictoRfi } from "@/api";
 import { rotuloCategoria } from "@/categorias";
+import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { DangerZone } from "@/components/DangerZone";
+import { ProcessamentoEmLote } from "@/components/ProcessamentoEmLote";
 import { useLanguage } from "@/i18n";
 import { formatElapsed, useElapsedSeconds } from "@/useElapsedSeconds";
 
@@ -96,31 +98,22 @@ export function RfiDetail() {
         </p>
       )}
       {extraindo && (
-        <div className="alert alert-warning" style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ flex: 1 }}>
-            <div>{t("rfiDetail.processando").replace("{tempo}", formatElapsed(elapsedSeconds))}</div>
-            <div>
-              <b>
-                {rfi.cancelamento_solicitado
-                  ? t("rfiDetail.cancelando")
-                  : rfi.progresso
-                    ? t(`rfiDetail.fase.${rfi.progresso.fase}`)
-                        .replace("{atual}", String(rfi.progresso.atual))
-                        .replace("{total}", String(rfi.progresso.total))
-                        .replace("{nome}", rfi.progresso.nome)
-                    : t("rfiDetail.iniciando")}
-              </b>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            disabled={rfi.cancelamento_solicitado}
-            onClick={() => void api.cancelarRfi(rfi.id).then(carregar)}
-          >
-            {t("rfiDetail.cancelar")}
-          </button>
-        </div>
+        <ProcessamentoEmLote
+          mensagemProcessando={t("rfiDetail.processando").replace("{tempo}", formatElapsed(elapsedSeconds))}
+          statusLinha={
+            rfi.cancelamento_solicitado
+              ? t("rfiDetail.cancelando")
+              : rfi.progresso
+                ? t(`rfiDetail.fase.${rfi.progresso.fase}`)
+                    .replace("{atual}", String(rfi.progresso.atual))
+                    .replace("{total}", String(rfi.progresso.total))
+                    .replace("{nome}", rfi.progresso.nome)
+                : t("rfiDetail.iniciando")
+          }
+          cancelamentoSolicitado={rfi.cancelamento_solicitado}
+          rotuloCancelar={t("rfiDetail.cancelar")}
+          onCancelar={() => void api.cancelarRfi(rfi.id).then(carregar)}
+        />
       )}
 
       {rfi.status_extracao === "pronto" && rfi.total_itens > 0 && (
@@ -198,15 +191,6 @@ function RfiDocumentos({
     }
   }
 
-  function escolher(e: ChangeEvent<HTMLInputElement>) {
-    const novos = Array.from(e.target.files ?? []);
-    e.target.value = "";
-    setPendentes((prev) => [
-      ...prev,
-      ...novos.filter((n) => !prev.some((p) => p.name === n.name && p.size === n.size)),
-    ]);
-  }
-
   function enviar() {
     const form = new FormData();
     pendentes.forEach((a) => form.append("arquivos", a));
@@ -237,37 +221,16 @@ function RfiDocumentos({
           </li>
         ))}
       </ul>
-      {pendentes.length > 0 && (
-        <ul style={{ margin: "0 0 12px", paddingLeft: 0, listStyle: "none" }}>
-          {pendentes.map((a, i) => (
-            <li key={`${a.name}-${i}`} style={{ display: "flex", gap: 12, alignItems: "center", padding: "4px 0" }}>
-              <span style={{ flex: 1 }}>
-                {a.name} <span className="muted">({t("rfiDetail.novo")})</span>
-              </span>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={ocupado}
-                onClick={() => setPendentes((prev) => prev.filter((_, j) => j !== i))}
-              >
-                {t("rfiDetail.removerDocumento")}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <label className="btn btn-secondary" style={{ cursor: ocupado ? "default" : "pointer" }}>
-          {t("rfiDetail.selecionarArquivos")}
-          <input
-            type="file"
-            multiple
-            hidden
-            disabled={ocupado}
-            accept=".pdf,.docx,.xlsx,.csv,.txt,.md"
-            onChange={escolher}
-          />
-        </label>
+      <BatchDocumentUploader
+        files={pendentes}
+        onFilesChange={setPendentes}
+        accept=".pdf,.docx,.xlsx,.csv,.txt,.md"
+        disabled={ocupado}
+        selectLabel={t("rfiDetail.selecionarArquivos")}
+        removeLabel={t("rfiDetail.removerDocumento")}
+        newBadgeLabel={t("rfiDetail.novo")}
+      />
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
         {pendentes.length > 0 && (
           <button type="button" className="btn btn-primary" disabled={ocupado} onClick={enviar}>
             {enviando
