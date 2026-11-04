@@ -27,11 +27,13 @@ fi
 echo "Atualizando $ANTES -> $DEPOIS"
 cd "$PROJECT_DIR"
 
-podman-compose build
+podman compose build
 
-# `podman-compose up -d --build` sozinho NÃO recria um contêiner já existente, só rebuilda a
-# imagem (achado em produção, nesta mesma máquina) -- e esta versão do podman-compose nem tem o
-# subcomando `rm`. Então recria à mão, UM DE CADA VEZ, na ordem "web" primeiro e "api" depois --
+# `podman compose up -d --build` sozinho NÃO recria um contêiner já existente, só rebuilda a
+# imagem (achado em produção, nesta mesma máquina, na época com o `podman-compose` standalone --
+# que nem tinha o subcomando `rm`; hoje `podman compose` delega pro `docker-compose` instalado
+# como cli-plugin do próprio podman, 2026-11-04). Então recria à mão, UM DE CADA VEZ, na ordem
+# "web" primeiro e "api" depois --
 # `web` depende de `api`, e o `rm` tem que terminar de verdade pra `web` (uma chamada só pra
 # `podman rm`) antes da chamada seguinte tentar `api`. Já tentamos um `podman rm` por contêiner
 # dentro de um loop só de remoção (06efe1d) e depois um único `podman rm -f web api` numa chamada
@@ -49,12 +51,12 @@ for SERVICO in web api; do
     fi
 done
 
-podman-compose up -d
+podman compose up -d
 
 echo
 echo "--- Verificação ---"
 sleep 3
-podman-compose ps
+podman compose ps
 # shellcheck disable=SC1091
 [ -f .env ] && . ./.env 2>/dev/null || true
 echo
