@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy.orm import Session
 
 from app.classificacao.service import (
@@ -25,24 +27,26 @@ def texto_item_rfi(item: RfiItem) -> str:
     return " — ".join(partes)
 
 
-def _avaliar_por_procedimento_interno(
+def _confirmar_procedimento_interno(
     db: Session, item: RfiItem, texto: str, vetor: list[float], api_key: str | None, model: str | None
-) -> bool:
+) -> tuple[uuid.UUID, str] | None:
     """Primeiro procura na base de procedimentos validados (restrita por afinidade de categoria,
     mesma lógica de app/classificacao/service.py::classificar_item) antes de ir para a web --
     mesmo espírito do semáforo de PoC: um passo a passo interno já confirmado responde melhor (e
-    mais rápido, mais barato em tokens) do que uma pesquisa na internet. Devolve True e já grava o
-    veredito quando um procedimento confirma o atendimento; False quando não há nada confirmado
-    (e quem chamou segue para a pesquisa web, sem tocar no item). `vetor` já vem calculado por
-    avaliar_item_rfi (embed_query de `texto`) e é reaproveitado aqui e em _avaliar_por_historico,
-    em vez de cada uma recalcular o mesmo embedding com uma chamada a mais ao Gemini."""
+    mais rápido, mais barato em tokens) do que uma pesquisa na internet. Só confirma e devolve
+    (procedimento_id, justificativa); não grava nada no item nem comita -- quem chama
+    (_avaliar_item_rfi) decide o que fazer com a confirmação, porque mesmo com procedimento
+    confirmando ela ainda complementa com uma busca web antes de persistir (ver seu próprio
+    docstring). `vetor` já vem calculado por avaliar_item_rfi (embed_query de `texto`) e é
+    reaproveitado aqui e em _avaliar_por_historico, em vez de cada uma recalcular o mesmo
+    embedding com uma chamada a mais ao Gemini."""
     chunks = _buscar_candidatos(
         db,
         vetor,
         categorias_afinidade=[item.categoria_codigo] if item.categoria_codigo else None,
     )
     if not chunks:
-        return False
+        return None
 
     candidatos = [
         CandidatoProcedimento(
@@ -52,20 +56,10 @@ def _avaliar_por_procedimento_interno(
     ]
     confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model)
     if not confirmacao.atende or not (0 <= confirmacao.indice_candidato < len(chunks)):
-        return False
+        return None
 
     procedimento = chunks[confirmacao.indice_candidato].procedimento
-    item.veredito = VeredictoRfi.atende
-    item.justificativa = confirmacao.justificativa
-    item.fontes = []
-    item.procedimento_id = procedimento.id
-    item.confirmado_por_historico = False
-    item.origem = OrigemClassificacao.auto
-    item.modelo = modelo_efetivo(model)
-    atualizar_embedding_historico_rfi(db, item, api_key)
-    db.commit()
-    db.refresh(item)
-    return True
+    return procedimento.id, confirmacao.justificativa
 
 
 def _avaliar_por_historico(
@@ -77,7 +71,7 @@ def _avaliar_por_historico(
     do Gemini usado para procedimentos (confirmar_match), mas a justificativa nunca é a dele --
     sempre o texto fixo e anônimo em JUSTIFICATIVA_HISTORICO, pra nunca vazar qual cliente/PoC/
     edital originou o match (mesma anonimidade da ADR 1). `vetor`: ver docstring de
-    _avaliar_por_procedimento_interno -- mesmo embedding, calculado uma vez só."""
+    _confirmar_procedimento_interno -- mesmo embedding, calculado uma vez só."""
     textos_historico = _buscar_candidatos_historico(
         db,
         vetor,
@@ -128,7 +122,7 @@ def avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None = None, mod
 
 def _avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None, model: str | None) -> RfiItem:
     """Semáforo de 4 estados do RFI, em 3 passos: procedimento interno já validado
-    (_avaliar_por_procedimento_interno) → histórico de execuções bem-sucedidas equivalentes
+    (_confirmar_procedimento_interno) → histórico de execuções bem-sucedidas equivalentes
     (_avaliar_por_historico) → só se nenhum dos dois confirmar, pesquisa com grounding do Google
     Search → classificação numa chamada separada (mesma limitação de grounding+response_schema do
     semáforo de PoC, ver app/classificacao/service.py::classificar_item)."""
@@ -140,7 +134,29 @@ def _avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None, model: st
     _etapa(db, item, "procedimento")
     vetor = embed_query(texto, api_key=api_key)
 
-    if _avaliar_por_procedimento_interno(db, item, texto, vetor, api_key, model):
+    confirmacao_interna = _confirmar_procedimento_interno(db, item, texto, vetor, api_key, model)
+    if confirmacao_interna is not None:
+        procedimento_id, justificativa = confirmacao_interna
+        item.veredito = VeredictoRfi.atende
+        item.justificativa = justificativa
+        item.procedimento_id = procedimento_id
+        item.confirmado_por_historico = False
+        item.origem = OrigemClassificacao.auto
+        item.modelo = modelo_efetivo(model)
+        # Mesmo com o procedimento confirmando (evidência mais forte, já destacada na UI -- ver
+        # RfiItemRow), complementa com fontes da web em vez de pular a pesquisa de vez: só a
+        # busca com grounding, sem a segunda chamada de classificação (o veredito já está
+        # decidido pelo procedimento, não precisa reclassificar). Uma falha aqui não pode derrubar
+        # um veredito que já foi confirmado -- fica só sem fontes complementares.
+        _etapa(db, item, "web")
+        try:
+            _, fontes = pesquisar_atendimento_rfi(texto, api_key=api_key, model=model)
+            item.fontes = [f.model_dump() for f in fontes]
+        except Exception:  # noqa: BLE001 - complemento best-effort, não pode perder a confirmação
+            item.fontes = []
+        atualizar_embedding_historico_rfi(db, item, api_key)
+        db.commit()
+        db.refresh(item)
         return item
 
     _etapa(db, item, "historico")

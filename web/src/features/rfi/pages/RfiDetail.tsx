@@ -15,6 +15,23 @@ const VEREDITO_BADGE: Record<VeredictoRfi, string> = {
   sem_evidencia: "badge-muted",
 };
 
+function contagemVeredito(
+  contagem: { atende: number; atende_parcial: number; nao_atende: number; sem_evidencia: number },
+  t: (key: string) => string,
+): string {
+  const chaves: VeredictoRfi[] = ["atende", "atende_parcial", "nao_atende", "sem_evidencia"];
+  const labelKey: Record<VeredictoRfi, string> = {
+    atende: "rfiItemRow.atende",
+    atende_parcial: "rfiItemRow.atendeParcial",
+    nao_atende: "rfiItemRow.naoAtende",
+    sem_evidencia: "rfiItemRow.semEvidencia",
+  };
+  return chaves
+    .filter((v) => contagem[v] > 0)
+    .map((v) => `${contagem[v]} ${t(labelKey[v]).toLowerCase()}`)
+    .join(" · ");
+}
+
 export function RfiDetail() {
   const { id } = useParams();
   const { t, lang } = useLanguage();
@@ -80,11 +97,24 @@ export function RfiDetail() {
               {rfi.numero_processo ? ` · ${t("rfiDetail.processo")} ${rfi.numero_processo}` : ""}
             </div>
           </div>
-          <div className="poc-pct">
-            <b>{pct}%</b>
-            <span>
-              {rfi.itens_avaliados}/{rfi.total_itens} {t("rfiDetail.avaliados")}
-            </span>
+          <div style={{ display: "flex", gap: 24, alignItems: "flex-end" }}>
+            {rfi.score !== null && (
+              <div className="poc-pct">
+                <b style={rfi.score >= 70 ? undefined : { color: rfi.score >= 40 ? "var(--color-warning)" : "var(--color-danger)" }}>
+                  {rfi.score}%
+                </b>
+                <span>
+                  {t("rfiDetail.atendimento")}
+                  {rfi.contagem_veredito && ` · ${contagemVeredito(rfi.contagem_veredito, t)}`}
+                </span>
+              </div>
+            )}
+            <div className="poc-pct">
+              <b>{pct}%</b>
+              <span>
+                {rfi.itens_avaliados}/{rfi.total_itens} {t("rfiDetail.avaliados")}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -350,6 +380,9 @@ function RfiItemRow({
             </span>
           )}
         </span>
+        {item.procedimento_id && (
+          <span className="badge badge-procedimento">{t("rfiItemRow.procedimentoInterno")}</span>
+        )}
         {item.veredito ? (
           <span className={`badge ${VEREDITO_BADGE[item.veredito]}`}>{VEREDITO_LABEL[item.veredito]}</span>
         ) : (
@@ -378,15 +411,18 @@ function RfiItemRow({
             </p>
           )}
           {item.fontes.length > 0 && (
-            <ul style={{ margin: "0 0 12px", paddingLeft: 18 }}>
-              {item.fontes.map((f, i) => (
-                <li key={i}>
-                  <a href={f.url} target="_blank" rel="noreferrer">
-                    {f.titulo}
-                  </a>
-                </li>
-              ))}
-            </ul>
+            <>
+              {item.procedimento_id && <p className="muted">{t("rfiItemRow.fontesComplementares")}</p>}
+              <ul style={{ paddingLeft: 18 }}>
+                {item.fontes.map((f, i) => (
+                  <li key={i}>
+                    <a href={f.url} target="_blank" rel="noreferrer">
+                      {f.titulo}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
 
           <div style={{ display: "flex", gap: 8 }}>

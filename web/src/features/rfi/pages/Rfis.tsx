@@ -3,6 +3,12 @@ import { Link } from "react-router-dom";
 import { api, RfiListItem } from "@/api";
 import { useLanguage } from "@/i18n";
 
+function scoreBadgeClass(score: number): string {
+  if (score >= 70) return "badge-verde";
+  if (score >= 40) return "badge-amarelo";
+  return "badge-vermelho";
+}
+
 export function Rfis() {
   const { t } = useLanguage();
   const [itens, setItens] = useState<RfiListItem[] | null>(null);
@@ -105,6 +111,7 @@ export function Rfis() {
                   <th>{t("rfis.colData")}</th>
                   <th>{t("rfis.colStatus")}</th>
                   <th>{t("rfis.colProgresso")}</th>
+                  <th>{t("rfis.colAtendimento")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,6 +132,13 @@ export function Rfis() {
                     </td>
                     <td className="muted">
                       {r.total_itens > 0 ? `${r.itens_avaliados}/${r.total_itens}` : "—"}
+                    </td>
+                    <td>
+                      {r.score !== null ? (
+                        <span className={`badge ${scoreBadgeClass(r.score)}`}>{r.score}%</span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

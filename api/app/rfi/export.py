@@ -40,6 +40,14 @@ def _fontes_texto(item) -> str:
 def montar_rfi_export_html(rfi: Rfi) -> str:
     total = len(rfi.itens)
     avaliados = sum(1 for i in rfi.itens if i.veredito is not None)
+    contagem = {v: sum(1 for i in rfi.itens if i.veredito == v) for v in VeredictoRfi}
+    score = round(100 * contagem[VeredictoRfi.atende] / total, 1) if total > 0 else None
+    resumo_html = ""
+    if score is not None:
+        partes_resumo = " · ".join(
+            f"{contagem[v]} {_VEREDITO_LABEL[v].lower()}" for v in VeredictoRfi if contagem[v] > 0
+        )
+        resumo_html = f'<p class="pct">Atendimento: {score}% ({partes_resumo})</p>'
 
     linhas = []
     for categoria, itens in _itens_por_categoria(rfi).items():
@@ -83,6 +91,7 @@ def montar_rfi_export_html(rfi: Rfi) -> str:
     · gerado em {date.today().strftime('%d/%m/%Y')}
   </div>
   <p class="pct">{avaliados}/{total} itens avaliados</p>
+  {resumo_html}
 
   <table>
     <thead><tr><th>Item</th><th>Descrição</th><th>Veredito</th><th>Justificativa</th><th>Fonte(s)</th></tr></thead>

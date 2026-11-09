@@ -301,6 +301,8 @@ export interface RfiListItem {
   cancelamento_solicitado: boolean;
   total_itens: number;
   itens_avaliados: number;
+  score: number | null;
+  contagem_veredito: { atende: number; atende_parcial: number; nao_atende: number; sem_evidencia: number } | null;
   responsavel_id: string | null;
   responsavel_email: string | null;
 }

@@ -14,14 +14,14 @@ from app.models import OrigemClassificacao, OrigemConhecimento, Rfi, RfiDocument
 from app.procedimentos.router import _criar_procedimento, _escapar_html
 from app.rfi.documentos import TEXTO_COLADO_NOME, ler_conteudo, remover_arquivo, salvar_documento
 from app.rfi.export import montar_rfi_export_html, montar_rfi_export_xlsx
-from app.rfi.schemas import RfiDetail, RfiDocumentoOut, RfiItemManualUpdate, RfiItemOut, RfiListItem
+from app.rfi.schemas import ContagemVeredito, RfiDetail, RfiDocumentoOut, RfiItemManualUpdate, RfiItemOut, RfiListItem
 from app.rfi.service import avaliar_item_rfi
 from app.rfi.tasks import iniciar_processamento, processar_rfi, reavaliar_rfi
 
 router = APIRouter(prefix="/api/rfis", tags=["rfis"], dependencies=[Depends(get_current_user)])
 
 
-def _contar_itens(db: Session, rfi_id: uuid.UUID) -> tuple[int, int]:
+def _contar_itens(db: Session, rfi_id: uuid.UUID) -> tuple[int, int, float | None, ContagemVeredito]:
     total = db.query(func.count(RfiItem.id)).filter(RfiItem.rfi_id == rfi_id).scalar() or 0
     avaliados = (
         db.query(func.count(RfiItem.id))
@@ -29,11 +29,21 @@ def _contar_itens(db: Session, rfi_id: uuid.UUID) -> tuple[int, int]:
         .scalar()
         or 0
     )
-    return total, avaliados
+    linhas = (
+        db.query(RfiItem.veredito, func.count(RfiItem.id))
+        .filter(RfiItem.rfi_id == rfi_id, RfiItem.veredito.is_not(None))
+        .group_by(RfiItem.veredito)
+        .all()
+    )
+    contagem = ContagemVeredito()
+    for veredito, n in linhas:
+        setattr(contagem, veredito.value, n)
+    score = round(100 * contagem.atende / total, 1) if total > 0 else None
+    return total, avaliados, score, contagem
 
 
 def _list_item(db: Session, rfi: Rfi) -> RfiListItem:
-    total, avaliados = _contar_itens(db, rfi.id)
+    total, avaliados, score, contagem = _contar_itens(db, rfi.id)
     return RfiListItem(
         id=rfi.id,
         titulo=rfi.titulo,
@@ -47,6 +57,8 @@ def _list_item(db: Session, rfi: Rfi) -> RfiListItem:
         cancelamento_solicitado=rfi.cancelamento_solicitado,
         total_itens=total,
         itens_avaliados=avaliados,
+        score=score,
+        contagem_veredito=contagem,
         responsavel_id=rfi.responsavel_id,
         responsavel_email=rfi.responsavel.email if rfi.responsavel else None,
     )

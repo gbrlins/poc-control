@@ -41,6 +41,13 @@ class RfiItemManualUpdate(BaseModel):
     justificativa: str | None = None
 
 
+class ContagemVeredito(BaseModel):
+    atende: int = 0
+    atende_parcial: int = 0
+    nao_atende: int = 0
+    sem_evidencia: int = 0
+
+
 class RfiListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -56,6 +63,11 @@ class RfiListItem(BaseModel):
     cancelamento_solicitado: bool = False
     total_itens: int
     itens_avaliados: int
+    # % de itens com veredito "atende" sobre o total (não só os avaliados -- fórmula escolhida
+    # pelo usuário); None quando o RFI ainda não tem nenhum item. Atualiza ao vivo durante a
+    # avaliação, já que o denominador é o total e não só os itens já avaliados.
+    score: float | None = None
+    contagem_veredito: ContagemVeredito | None = None
     responsavel_id: uuid.UUID | None = None
     responsavel_email: str | None = None
 

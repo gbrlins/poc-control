@@ -835,6 +835,14 @@ textarea.input {
   color: var(--color-danger);
 }
 
+/* Evidência interna confirmada (procedimento validado) num item de RFI -- fundo sólido, mais forte
+   que o .badge-verde (pastel) do veredito, pra destacar que essa é a evidência mais confiável. */
+.badge-procedimento {
+  background: var(--color-success);
+  color: #fff;
+  font-weight: 700;
+}
+
 /* Status de execução do item */
 
 .badge-pendente {
@@ -1227,12 +1235,26 @@ textarea.input {
   padding: 6px 14px 18px 70px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 22px;
+}
+
+/* Espaçamento vem só do gap acima -- sem isto, a margem padrão do navegador em <p>/<ul> soma com
+   o gap de forma inconsistente (margem de flex item não colapsa com o gap), deixando alguns
+   "tópicos" mais espremidos que outros. */
+.item-row-body p,
+.item-row-body ul {
+  margin: 0;
 }
 
 @media (max-width: 760px) {
   .item-row-head {
     grid-template-columns: 1fr auto;
+  }
+
+  /* 70px alinha com a coluna de código (56px) do cabeçalho, que some nesse breakpoint -- sem
+     isso o corpo fica com uma indentação grande e sem relação com nada acima dela. */
+  .item-row-body {
+    padding-left: 14px;
   }
 }
 
