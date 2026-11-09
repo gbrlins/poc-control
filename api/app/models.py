@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import ARRAY, Boolean, Date, DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import ARRAY, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY as PGArray
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -653,3 +653,55 @@ class Exclusao(Base):
     )
     titulo: Mapped[str] = mapped_column(String(255), nullable=False)
     contagens: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class TermoBuscaLicitacao(Base):
+    """Termo de busca (palavra/expressão) usado pra casar contra o objeto de uma licitação do PNCP
+    (ver app/licitacoes/matching.py) -- editável por um admin em /licitacoes, não fixo no código,
+    pra dar pra ajustar sem deploy."""
+
+    __tablename__ = "licitacao_termos_busca"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    termo: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    # Tag opcional pra uma das 8 áreas de app/categorias.py -- só organização na tela de admin, não
+    # usada pra filtrar a busca no PNCP (que não tem filtro de categoria).
+    categoria_codigo: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Licitacao(Base):
+    """Uma licitação do PNCP cujo objeto bateu com algum termo de busca ativo (ver
+    app/licitacoes/service.py::verificar_licitacoes). numero_controle_pncp é o identificador
+    estável do PNCP -- único aqui, usado pra upsert (uma rodada rodar de novo sobre o mesmo período
+    não duplica linha, só atualiza campos que podem ter mudado desde a última vez, como datas de
+    proposta e valor)."""
+
+    __tablename__ = "licitacoes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    numero_controle_pncp: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    orgao_nome: Mapped[str] = mapped_column(String(255), nullable=False)
+    orgao_cnpj: Mapped[str] = mapped_column(String(20), nullable=False)
+    unidade_nome: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    uf: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    municipio: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    objeto: Mapped[str] = mapped_column(Text, nullable=False)
+    modalidade_codigo: Mapped[int] = mapped_column(Integer, nullable=False)
+    modalidade_nome: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    valor_estimado: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    data_publicacao: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    data_abertura_proposta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    data_encerramento_proposta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ano_compra: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequencial_compra: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Quais termos de busca bateram no objeto desta licitação -- mostrado na UI como "por que isso
+    # apareceu aqui" (uma licitação pode casar com mais de um termo).
+    termos_encontrados: Mapped[list[str]] = mapped_column(PGArray(String), default=list)
+    link_pncp: Mapped[str] = mapped_column(String(300), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

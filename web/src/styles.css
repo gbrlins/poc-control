@@ -412,9 +412,15 @@ h2 {
 
 .home-actions {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 28px;
+}
+
+@media (max-width: 1000px) {
+  .home-actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 720px) {
@@ -491,6 +497,23 @@ h2 {
 
 .home-action-procedimentos .icon {
   background: var(--purple-500);
+}
+
+.home-action-licitacoes .icon {
+  background: var(--blue-500);
+}
+
+.beta-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--suse-accent);
+  color: #fff;
+  text-transform: uppercase;
+  vertical-align: middle;
 }
 
 .home-history-grid {
@@ -571,6 +594,34 @@ h2 {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--color-border);
+}
+
+.home-licitacoes-card {
+  margin-top: 16px;
+}
+
+.home-licitacoes-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 900;
+  margin: 0 0 10px;
+}
+
+.licitacao-row {
+  flex-wrap: wrap;
+}
+
+.licitacao-row-main {
+  flex: 1;
+  min-width: 220px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.licitacao-row .btn {
+  flex: none;
 }
 
 .poc-filtros {

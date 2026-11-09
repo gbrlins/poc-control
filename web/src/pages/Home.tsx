@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { api, PocListItem, ProcedimentoListItem, RfiListItem } from "@/api";
+import { api, LicitacaoOut, PocListItem, ProcedimentoListItem, RfiListItem } from "@/api";
 import { useLanguage } from "@/i18n";
 import { Icon } from "@/Icon";
 
@@ -83,17 +83,19 @@ export function Home() {
   const [pocs, setPocs] = useState<PocListItem[] | null>(null);
   const [rfis, setRfis] = useState<RfiListItem[] | null>(null);
   const [procedimentos, setProcedimentos] = useState<ProcedimentoListItem[] | null>(null);
+  const [licitacoes, setLicitacoes] = useState<LicitacaoOut[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   // Re-read on every mount (e.g. coming back from /planejar) rather than once ever, since the
   // planner's localStorage can change without poc-control's own React tree re-rendering.
   const [rascunhos] = useState<RascunhoLocal[]>(() => lerRascunhosLocais(t("home.rascunhoSemNome")));
 
   useEffect(() => {
-    Promise.all([api.listarPocs(), api.listarRfis(), api.listarProcedimentos()])
-      .then(([p, r, proc]) => {
+    Promise.all([api.listarPocs(), api.listarRfis(), api.listarProcedimentos(), api.listarLicitacoes()])
+      .then(([p, r, proc, lic]) => {
         setPocs(p);
         setRfis(r);
         setProcedimentos(proc);
+        setLicitacoes(lic);
       })
       .catch(() => setErro(t("pocs.erroCarregar")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,6 +183,15 @@ export function Home() {
             <span>{t("home.actionProcedimentosDesc")}</span>
           </div>
         </Link>
+        <Link to="/licitacoes" className="home-action home-action-licitacoes">
+          <Icon name="broadcast" />
+          <div>
+            <strong>
+              {t("home.actionLicitacoes")} <span className="beta-tag">{t("licitacoes.beta")}</span>
+            </strong>
+            <span>{t("home.actionLicitacoesDesc")}</span>
+          </div>
+        </Link>
       </div>
 
       <div className="home-history-grid">
@@ -210,6 +221,50 @@ export function Home() {
         />
         <DraftsCard itens={rascunhos} onAbrir={abrirRascunho} />
       </div>
+
+      <LicitacoesCard carregando={licitacoes === null} itens={licitacoes ?? []} />
+    </div>
+  );
+}
+
+// Card largo (não entra na grade de 4 colunas de HistoryCard acima -- "Licitações ao vivo" tem
+// mais metadado por linha, por isso o pedido original foi por um card maior, não mais um da
+// mesma grade) com as licitações mais recentes do beta (ver Licitacoes.tsx pra tela cheia e pro
+// painel de admin dos termos de busca).
+function LicitacoesCard({ carregando, itens }: { carregando: boolean; itens: LicitacaoOut[] }) {
+  const { t } = useLanguage();
+  const recentes = [...itens]
+    .sort((a, b) => (a.data_publicacao < b.data_publicacao ? 1 : -1))
+    .slice(0, RESULTADOS_BUSCA);
+
+  return (
+    <div className="card home-licitacoes-card">
+      <h3>
+        <Icon name="broadcast" /> {t("home.recentesLicitacoes")} <span className="beta-tag">{t("licitacoes.beta")}</span>
+      </h3>
+      {carregando && <p className="muted">{t("common.carregando")}</p>}
+      {!carregando && recentes.length === 0 && <p className="empty-state">{t("licitacoes.nenhuma")}</p>}
+      {!carregando &&
+        recentes.map((lic) => (
+          <div key={lic.id} className="history-row licitacao-row">
+            <Link to="/licitacoes" className="licitacao-row-main">
+              <div className="history-row-title">{lic.objeto}</div>
+              <div className="history-row-sub">
+                {lic.orgao_nome}
+                {lic.uf ? ` · ${lic.uf}` : ""} · {lic.modalidade_nome ?? "—"} ·{" "}
+                {new Date(lic.data_publicacao).toLocaleDateString()}
+              </div>
+            </Link>
+            <a href={lic.link_pncp} target="_blank" rel="noreferrer" className="btn btn-secondary">
+              {t("licitacoes.verEdital")}
+            </a>
+          </div>
+        ))}
+      {!carregando && itens.length > 0 && (
+        <Link to="/licitacoes" className="history-row-all">
+          {t("home.verLicitacoes")}
+        </Link>
+      )}
     </div>
   );
 }

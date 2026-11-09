@@ -319,6 +319,34 @@ export interface RfiItemManualPayload {
   justificativa?: string | null;
 }
 
+export interface LicitacaoOut {
+  id: string;
+  numero_controle_pncp: string;
+  orgao_nome: string;
+  orgao_cnpj: string;
+  unidade_nome: string | null;
+  uf: string | null;
+  municipio: string | null;
+  objeto: string;
+  modalidade_codigo: number;
+  modalidade_nome: string | null;
+  valor_estimado: number | null;
+  data_publicacao: string;
+  data_abertura_proposta: string | null;
+  data_encerramento_proposta: string | null;
+  termos_encontrados: string[];
+  link_pncp: string;
+  created_at: string;
+}
+
+export interface TermoBuscaOut {
+  id: string;
+  termo: string;
+  categoria_codigo: string | null;
+  ativo: boolean;
+  created_at: string;
+}
+
 export type TipoRecurso = "pocs" | "rfis" | "procedimentos";
 
 export interface VinculoResource {
@@ -499,4 +527,15 @@ export const api = {
         throw new ApiError(res.status, body?.detail ?? "Não foi possível excluir");
       }
     }),
+
+  listarLicitacoes: () => request<LicitacaoOut[]>("/api/licitacoes"),
+  atualizarLicitacoes: () => request<{ novas: number }>("/api/licitacoes/atualizar", { method: "POST" }),
+  listarTermosBusca: () => request<TermoBuscaOut[]>("/api/licitacoes/termos"),
+  criarTermoBusca: (termo: string, categoriaCodigo?: string | null) =>
+    request<TermoBuscaOut>("/api/licitacoes/termos", {
+      method: "POST",
+      body: JSON.stringify({ termo, categoria_codigo: categoriaCodigo ?? null }),
+    }),
+  alternarTermoBusca: (id: string) => request<TermoBuscaOut>(`/api/licitacoes/termos/${id}`, { method: "PATCH" }),
+  removerTermoBusca: (id: string) => request<void>(`/api/licitacoes/termos/${id}`, { method: "DELETE" }),
 };

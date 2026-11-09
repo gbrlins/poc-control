@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,8 @@ from sqlalchemy import text
 from app.auth import router as auth_router
 from app.config import settings
 from app.db import SessionLocal
+from app.licitacoes.router import router as licitacoes_router
+from app.licitacoes.service import verificar_licitacoes
 from app.planner.router import router as planner_router
 from app.pocs.router import router as pocs_router
 from app.recuperacao import recuperar_extracoes_interrompidas
@@ -25,6 +28,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+async def _laco_licitacoes() -> None:
+    """Verifica licitações novas a cada licitacoes_intervalo_horas, pra sempre (até ser cancelada
+    no shutdown). Roda verificar_licitacoes (síncrona, bate na rede) numa thread à parte --
+    chamá-la direto aqui bloquearia o único laço de eventos da api inteira durante a varredura das
+    13 modalidades do PNCP. Uma falha numa rodada não impede a próxima."""
+    while True:
+        try:
+            with SessionLocal() as db:
+                novas = await asyncio.to_thread(verificar_licitacoes, db)
+            if novas:
+                logger.info("Licitações: %s nova(s) encontrada(s) nesta rodada", novas)
+        except Exception:  # noqa: BLE001
+            logger.exception("Falha na verificação periódica de licitações")
+        await asyncio.sleep(settings.licitacoes_intervalo_horas * 3600)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # ADR 7: tarefas em segundo plano morrem com o processo; o que ficou `extraindo` vira `erro` pra poder tentar de novo.
@@ -37,7 +56,11 @@ async def lifespan(_app: FastAPI):
                 logger.warning("Extrações interrompidas por um reinício marcadas como erro: %s", recuperadas)
         except Exception:  # noqa: BLE001
             logger.exception("Não consegui recuperar as extrações interrompidas")
+
+    tarefa_licitacoes = asyncio.create_task(_laco_licitacoes()) if settings.licitacoes_polling_ativo else None
     yield
+    if tarefa_licitacoes is not None:
+        tarefa_licitacoes.cancel()
 
 
 app = FastAPI(title="POC Control", lifespan=lifespan)
@@ -46,6 +69,7 @@ app.include_router(procedimentos_router)
 app.include_router(pocs_router)
 app.include_router(planner_router)
 app.include_router(rfi_router)
+app.include_router(licitacoes_router)
 app.include_router(sync_router)
 app.include_router(users_router)
 

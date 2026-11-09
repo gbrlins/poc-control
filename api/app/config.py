@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # Desligue se rodar a api com mais de um worker (senão um worker derruba tarefas vivas do outro).
     extracao_recuperar_no_inicio: bool = True
 
+    # Licitações ao vivo (beta, ver app/licitacoes/): laço periódico que varre o PNCP, dentro do
+    # próprio processo da api (sem infra nova). Mesma pressuposição de um worker só que
+    # extracao_recuperar_no_inicio já documenta.
+    licitacoes_polling_ativo: bool = True
+    licitacoes_intervalo_horas: int = 6
+
     # Sincronização de Procedimentos com outra instância do poc-control (ex.: local <-> servidor de
     # produção) -- ver app/sync/. Vazio por padrão: a funcionalidade fica escondida no front
     # (GET /api/sync/config) até os três estarem preenchidos. A senha nunca trafega pro navegador --

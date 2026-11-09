@@ -8,6 +8,8 @@ const ICONS: Record<string, string> = {
   book: '<path d="M4 4.5A2.5 2.5 0 016.5 2H20v16H6.5A2.5 2.5 0 004 20.5v-16z"/><path d="M4 20.5A2.5 2.5 0 006.5 18H20"/>',
   folder: '<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>',
   chevronR: '<path d="M9 6l6 6-6 6"/>',
+  broadcast:
+    '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 000 7M15.5 8.5a5 5 0 010 7M5 5a9 9 0 000 14M19 5a9 9 0 010 14"/>',
 };
 
 export type IconName = keyof typeof ICONS;
