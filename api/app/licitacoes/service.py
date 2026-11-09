@@ -19,8 +19,14 @@ logger = logging.getLogger(__name__)
 JANELA_DIAS = 3
 
 # Trava simples em memória -- não deixa o laço periódico e o botão manual (ou dois cliques
-# seguidos) rodarem ao mesmo tempo e brigarem pelo mesmo upsert.
+# seguidos) rodarem ao mesmo tempo e brigarem pelo mesmo upsert. Também exposta (ver
+# verificacao_em_andamento) pro front saber se ainda está rodando, já que uma rodada completa pode
+# levar vários minutos (13 modalidades, cada uma pausada pra não levar 429 do PNCP).
 _em_andamento = False
+
+
+def verificacao_em_andamento() -> bool:
+    return _em_andamento
 
 
 def _data(valor: str | None) -> date | None:

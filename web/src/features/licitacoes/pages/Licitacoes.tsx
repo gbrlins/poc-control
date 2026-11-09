@@ -1,7 +1,9 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useCurrentUser } from "@/auth";
 import { api, LicitacaoOut, TermoBuscaOut } from "@/api";
 import { useLanguage } from "@/i18n";
+
+const INTERVALO_STATUS_MS = 5000;
 
 function formatarValor(valor: number | null): string {
   if (valor === null) return "—";
@@ -13,8 +15,12 @@ export function Licitacoes() {
   const user = useCurrentUser();
   const [itens, setItens] = useState<LicitacaoOut[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [atualizando, setAtualizando] = useState(false);
-  const [mensagem, setMensagem] = useState<string | null>(null);
+  // Uma rodada completa varre 13 modalidades do PNCP, cada uma pausada pra não levar 429 (ver
+  // api/app/licitacoes/pncp_client.py) -- pode levar vários minutos, tempo demais pra segurar a
+  // resposta HTTP do botão (o nginx corta em 300s). O backend dispara em segundo plano e devolve
+  // na hora; aqui a gente só fica perguntando GET /status até ele acabar.
+  const [status, setStatus] = useState<"ocioso" | "verificando" | "concluido">("ocioso");
+  const pollRef = useRef<number | null>(null);
 
   function carregar() {
     api
@@ -25,18 +31,35 @@ export function Licitacoes() {
 
   useEffect(carregar, []);
 
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) window.clearTimeout(pollRef.current);
+    };
+  }, []);
+
+  function aguardarConclusao() {
+    api
+      .statusLicitacoes()
+      .then((resultado) => {
+        if (resultado.em_andamento) {
+          pollRef.current = window.setTimeout(aguardarConclusao, INTERVALO_STATUS_MS);
+        } else {
+          setStatus("concluido");
+          carregar();
+        }
+      })
+      .catch(() => setStatus("ocioso"));
+  }
+
   async function atualizar() {
-    setAtualizando(true);
-    setMensagem(null);
+    setStatus("verificando");
     setErro(null);
     try {
-      const resultado = await api.atualizarLicitacoes();
-      setMensagem(t("licitacoes.atualizadoMsg").replace("{n}", String(resultado.novas)));
-      carregar();
+      await api.atualizarLicitacoes();
+      pollRef.current = window.setTimeout(aguardarConclusao, INTERVALO_STATUS_MS);
     } catch {
       setErro(t("licitacoes.erroAtualizar"));
-    } finally {
-      setAtualizando(false);
+      setStatus("ocioso");
     }
   }
 
@@ -46,13 +69,14 @@ export function Licitacoes() {
         <h1>
           {t("licitacoes.titulo")} <span className="beta-tag">{t("licitacoes.beta")}</span>
         </h1>
-        <button type="button" className="btn btn-primary" onClick={atualizar} disabled={atualizando}>
-          {atualizando ? t("licitacoes.atualizando") : t("licitacoes.atualizarAgora")}
+        <button type="button" className="btn btn-primary" onClick={atualizar} disabled={status === "verificando"}>
+          {status === "verificando" ? t("licitacoes.atualizando") : t("licitacoes.atualizarAgora")}
         </button>
       </div>
       <p className="page-subtitle">{t("licitacoes.subtitulo")}</p>
 
-      {mensagem && <p className="alert alert-success">{mensagem}</p>}
+      {status === "verificando" && <p className="alert alert-warning">{t("licitacoes.verificandoMsg")}</p>}
+      {status === "concluido" && <p className="alert alert-success">{t("licitacoes.atualizadoMsg")}</p>}
       {erro && <p className="alert alert-error">{erro}</p>}
 
       {itens === null && !erro && <p className="muted">{t("common.carregando")}</p>}

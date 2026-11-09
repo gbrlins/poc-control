@@ -152,13 +152,25 @@ def test_rota_listar_exige_login_mas_nao_admin(usuario):
     assert r.status_code == 200
 
 
-def test_rota_atualizar_chama_verificar_licitacoes(usuario, monkeypatch):
+def test_rota_atualizar_dispara_em_segundo_plano_e_responde_na_hora(usuario, monkeypatch):
+    # TestClient roda background tasks de forma síncrona (faz parte do ciclo ASGI do próprio
+    # processo, não um worker à parte), então dá pra checar que a tarefa rodou sem precisar de
+    # polling aqui -- mas o ponto da mudança (ver router.py) é não segurar a resposta HTTP
+    # esperando a rodada inteira terminar, por isso o status 202 (aceito, ainda processando).
     chamadas = []
-    monkeypatch.setattr(licitacoes_router_module, "verificar_licitacoes", lambda db: chamadas.append(1) or 3)
+    monkeypatch.setattr(licitacoes_router_module, "verificar_licitacoes_em_segundo_plano", lambda: chamadas.append(1))
     c = TestClient(app)
     r = c.post("/api/licitacoes/atualizar")
-    assert r.status_code == 200 and r.json() == {"novas": 3}
+    assert r.status_code == 202 and r.json() == {"iniciado": True}
     assert chamadas == [1]
+
+
+def test_rota_status_reflete_a_trava_em_memoria(usuario, monkeypatch):
+    c = TestClient(app)
+    monkeypatch.setattr(service, "_em_andamento", False)
+    assert c.get("/api/licitacoes/status").json() == {"em_andamento": False}
+    monkeypatch.setattr(service, "_em_andamento", True)
+    assert c.get("/api/licitacoes/status").json() == {"em_andamento": True}
 
 
 def test_termos_crud_exige_admin(usuario):

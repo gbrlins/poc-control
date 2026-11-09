@@ -529,7 +529,8 @@ export const api = {
     }),
 
   listarLicitacoes: () => request<LicitacaoOut[]>("/api/licitacoes"),
-  atualizarLicitacoes: () => request<{ novas: number }>("/api/licitacoes/atualizar", { method: "POST" }),
+  atualizarLicitacoes: () => request<{ iniciado: boolean }>("/api/licitacoes/atualizar", { method: "POST" }),
+  statusLicitacoes: () => request<{ em_andamento: boolean }>("/api/licitacoes/status"),
   listarTermosBusca: () => request<TermoBuscaOut[]>("/api/licitacoes/termos"),
   criarTermoBusca: (termo: string, categoriaCodigo?: string | null) =>
     request<TermoBuscaOut>("/api/licitacoes/termos", {

@@ -42,4 +42,8 @@ class TermoBuscaIn(BaseModel):
 
 
 class AtualizarLicitacoesOut(BaseModel):
-    novas: int
+    iniciado: bool
+
+
+class StatusLicitacoesOut(BaseModel):
+    em_andamento: bool

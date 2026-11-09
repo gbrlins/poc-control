@@ -11,11 +11,10 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://pncp.gov.br/api/consulta"
 TAMANHO_PAGINA = 50
-# Confirmado em produção (2026-11-09): disparar as 13 modalidades (+ páginas) uma atrás da outra
-# sem pausa alguma derrubou a API em 429 (Too Many Requests) a partir da ~17ª chamada em poucos
-# segundos. Meio segundo entre chamadas (menos de 2/s) resolveu -- folgado o bastante pra não
-# provocar o limite de novo, mesmo não documentado publicamente qual é o teto real.
-PAUSA_ENTRE_CHAMADAS_SEGUNDOS = 0.5
+# Confirmado em produção (2026-11-09): mesmo com meio segundo entre chamadas, o PNCP continuava
+# devolvendo 429 (Too Many Requests) depois de só ~7-8 chamadas -- parece um "balde" que esgota
+# rápido e demora a encher de novo, não um simples limite de req/s. 2s segura bem mais.
+PAUSA_ENTRE_CHAMADAS_SEGUNDOS = 2.0
 # Teto de segurança por modalidade/rodada -- a API não documenta limite de taxa nem de volume, e
 # isto evita uma rodada rodar pra sempre num dia com volume atípico. Loga aviso se bater o teto
 # (pode haver mais resultados daquele dia não lidos nesta rodada; a próxima rodada tenta de novo
@@ -47,8 +46,12 @@ MODALIDADES: dict[int, str] = {
 
 def buscar_publicacoes(data_inicial: str, data_final: str, codigo_modalidade: int) -> list[dict]:
     """Todas as páginas de /v1/contratacoes/publicacao pra uma modalidade e intervalo de datas
-    (yyyyMMdd), até acabar ou bater MAX_PAGINAS_POR_MODALIDADE. Levanta httpx.HTTPError se a API
-    falhar -- quem chama (service.py) decide se segue pras próximas modalidades ou para a rodada."""
+    (yyyyMMdd). Devolve o que já tiver conseguido buscar mesmo que uma página no meio do caminho
+    falhe (rede, 429 persistente mesmo após as tentativas) -- confirmado em produção que o PNCP
+    corta o acesso no meio de modalidades com muita página (ex.: Pregão Eletrônico), e descartar as
+    páginas já lidas até ali jogava fora exatamente os resultados mais prováveis de bater com um
+    termo de busca. Nunca levanta exceção: uma falha vira só um aviso no log e a função devolve o
+    que tiver (lista vazia se a primeira página já falhar)."""
     itens: list[dict] = []
     pagina = 1
     with httpx.Client(base_url=BASE_URL, timeout=30.0) as cliente:
@@ -61,22 +64,30 @@ def buscar_publicacoes(data_inicial: str, data_final: str, codigo_modalidade: in
                 "pagina": pagina,
                 "tamanhoPagina": TAMANHO_PAGINA,
             }
-            resposta = cliente.get("/v1/contratacoes/publicacao", params=params)
-            tentativa = 1
-            while resposta.status_code == 429 and tentativa < TENTATIVAS_APOS_429:
-                espera = PAUSA_ENTRE_CHAMADAS_SEGUNDOS * (4**tentativa)  # 2s, depois 8s
-                logger.warning(
-                    "429 do PNCP na modalidade %s página %s -- esperando %.0fs e tentando de novo (%s/%s)",
-                    codigo_modalidade, pagina, espera, tentativa, TENTATIVAS_APOS_429 - 1,
-                )
-                time.sleep(espera)
+            try:
                 resposta = cliente.get("/v1/contratacoes/publicacao", params=params)
-                tentativa += 1
+                tentativa = 1
+                while resposta.status_code == 429 and tentativa < TENTATIVAS_APOS_429:
+                    espera = PAUSA_ENTRE_CHAMADAS_SEGUNDOS * (4**tentativa)
+                    logger.warning(
+                        "429 do PNCP na modalidade %s página %s -- esperando %.0fs e tentando de novo (%s/%s)",
+                        codigo_modalidade, pagina, espera, tentativa, TENTATIVAS_APOS_429 - 1,
+                    )
+                    time.sleep(espera)
+                    resposta = cliente.get("/v1/contratacoes/publicacao", params=params)
+                    tentativa += 1
 
-            if resposta.status_code == 204:
+                if resposta.status_code == 204:
+                    break
+                resposta.raise_for_status()
+                corpo = resposta.json()
+            except Exception:  # noqa: BLE001 - qualquer falha aqui: fica com o que já tem, não perde tudo
+                logger.warning(
+                    "Modalidade %s (%s): falhou na página %s -- ficando com as %s página(s) já lida(s)",
+                    codigo_modalidade, MODALIDADES.get(codigo_modalidade, "?"), pagina, pagina - 1,
+                )
                 break
-            resposta.raise_for_status()
-            corpo = resposta.json()
+
             pagina_itens = corpo.get("data") or []
             if not pagina_itens:
                 break

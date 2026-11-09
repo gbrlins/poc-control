@@ -1,12 +1,19 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_admin_user, get_current_user
-from app.licitacoes.schemas import AtualizarLicitacoesOut, LicitacaoOut, TermoBuscaIn, TermoBuscaOut
-from app.licitacoes.service import verificar_licitacoes
+from app.licitacoes.schemas import (
+    AtualizarLicitacoesOut,
+    LicitacaoOut,
+    StatusLicitacoesOut,
+    TermoBuscaIn,
+    TermoBuscaOut,
+)
+from app.licitacoes.service import verificacao_em_andamento
+from app.licitacoes.tasks import verificar_licitacoes_em_segundo_plano
 from app.models import Licitacao, TermoBuscaLicitacao
 
 router = APIRouter(prefix="/api/licitacoes", tags=["licitacoes"], dependencies=[Depends(get_current_user)])
@@ -20,13 +27,19 @@ def listar_licitacoes(db: Session = Depends(get_db)):
     return licitacoes
 
 
-@router.post("/atualizar", response_model=AtualizarLicitacoesOut)
-def atualizar_licitacoes(db: Session = Depends(get_db)):
-    """Dispara a verificação na hora (síncrono -- aceitável pra uma ação sob demanda; o front
-    mostra "Atualizando..." no botão enquanto espera). Mesma função usada pelo laço periódico em
-    app/main.py."""
-    novas = verificar_licitacoes(db)
-    return AtualizarLicitacoesOut(novas=novas)
+@router.post("/atualizar", response_model=AtualizarLicitacoesOut, status_code=status.HTTP_202_ACCEPTED)
+def atualizar_licitacoes(background_tasks: BackgroundTasks):
+    """Dispara a verificação em segundo plano e devolve na hora -- uma rodada completa (13
+    modalidades, cada uma pausada pra não levar 429 do PNCP) pode levar vários minutos, tempo
+    demais pra seguramos a resposta HTTP (nginx corta em 300s, ver web/nginx.conf). O front consulta
+    GET /status pra saber quando terminou."""
+    background_tasks.add_task(verificar_licitacoes_em_segundo_plano)
+    return AtualizarLicitacoesOut(iniciado=True)
+
+
+@router.get("/status", response_model=StatusLicitacoesOut)
+def status_licitacoes():
+    return StatusLicitacoesOut(em_andamento=verificacao_em_andamento())
 
 
 @router.get("/termos", response_model=list[TermoBuscaOut], dependencies=[Depends(get_current_admin_user)])
