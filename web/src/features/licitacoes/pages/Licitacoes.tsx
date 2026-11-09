@@ -55,8 +55,6 @@ export function Licitacoes() {
       {mensagem && <p className="alert alert-success">{mensagem}</p>}
       {erro && <p className="alert alert-error">{erro}</p>}
 
-      {user.is_admin && <TermosBusca />}
-
       {itens === null && !erro && <p className="muted">{t("common.carregando")}</p>}
       {itens && itens.length === 0 && <div className="card empty-state">{t("licitacoes.nenhuma")}</div>}
 
@@ -104,12 +102,15 @@ export function Licitacoes() {
           </div>
         </div>
       )}
+
+      {user.is_admin && <TermosBusca />}
     </div>
   );
 }
 
 function TermosBusca() {
   const { t } = useLanguage();
+  const [aberto, setAberto] = useState(false);
   const [termos, setTermos] = useState<TermoBuscaOut[] | null>(null);
   const [novoTermo, setNovoTermo] = useState("");
   const [erro, setErro] = useState<string | null>(null);
@@ -122,7 +123,12 @@ function TermosBusca() {
       .catch(() => setErro(t("licitacoes.erroCarregarTermos")));
   }
 
-  useEffect(carregar, []);
+  // Carrega só quando aberto pela primeira vez -- a maior parte do tempo ninguém abre este
+  // painel, não faz sentido pedir a lista de termos toda vez que a página carrega.
+  useEffect(() => {
+    if (aberto && termos === null) carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto]);
 
   async function adicionar(e: FormEvent) {
     e.preventDefault();
@@ -152,40 +158,50 @@ function TermosBusca() {
   }
 
   return (
-    <div className="card" style={{ marginBottom: 20 }}>
-      <h3 style={{ marginTop: 0 }}>{t("licitacoes.termosTitulo")}</h3>
-      <p className="muted">{t("licitacoes.termosDesc")}</p>
-      {erro && <p className="alert alert-error">{erro}</p>}
-      {termos === null && <p className="muted">{t("common.carregando")}</p>}
-      {termos && (
-        <ul style={{ margin: "0 0 12px", paddingLeft: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
-          {termos.map((termo) => (
-            <li key={termo.id} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <span className={`badge ${termo.ativo ? "badge-verde" : "badge-muted"}`}>
-                {termo.categoria_codigo ?? "—"}
-              </span>
-              <span style={{ flex: 1 }}>{termo.termo}</span>
-              <button type="button" className="btn btn-secondary" onClick={() => alternar(termo.id)}>
-                {termo.ativo ? t("licitacoes.desativar") : t("licitacoes.ativar")}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => remover(termo.id)}>
-                {t("licitacoes.removerTermo")}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <form onSubmit={adicionar} style={{ display: "flex", gap: 8 }}>
-        <input
-          className="input"
-          value={novoTermo}
-          onChange={(e) => setNovoTermo(e.target.value)}
-          placeholder={t("licitacoes.novoTermoPlaceholder")}
-        />
-        <button type="submit" className="btn btn-secondary" disabled={enviando}>
-          {t("licitacoes.adicionarTermo")}
+    <div className="card" style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>{t("licitacoes.termosTitulo")}</h3>
+        <button type="button" className="btn btn-secondary" onClick={() => setAberto((v) => !v)}>
+          {aberto ? t("common.fechar") : t("licitacoes.gerenciarTermos")}
         </button>
-      </form>
+      </div>
+
+      {aberto && (
+        <div style={{ marginTop: 14 }}>
+          <p className="muted">{t("licitacoes.termosDesc")}</p>
+          {erro && <p className="alert alert-error">{erro}</p>}
+          {termos === null && <p className="muted">{t("common.carregando")}</p>}
+          {termos && (
+            <ul style={{ margin: "0 0 12px", paddingLeft: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+              {termos.map((termo) => (
+                <li key={termo.id} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                  <span className={`badge ${termo.ativo ? "badge-verde" : "badge-muted"}`}>
+                    {termo.categoria_codigo ?? "—"}
+                  </span>
+                  <span style={{ flex: 1 }}>{termo.termo}</span>
+                  <button type="button" className="btn btn-secondary" onClick={() => alternar(termo.id)}>
+                    {termo.ativo ? t("licitacoes.desativar") : t("licitacoes.ativar")}
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => remover(termo.id)}>
+                    {t("licitacoes.removerTermo")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form onSubmit={adicionar} style={{ display: "flex", gap: 8 }}>
+            <input
+              className="input"
+              value={novoTermo}
+              onChange={(e) => setNovoTermo(e.target.value)}
+              placeholder={t("licitacoes.novoTermoPlaceholder")}
+            />
+            <button type="submit" className="btn btn-secondary" disabled={enviando}>
+              {t("licitacoes.adicionarTermo")}
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
