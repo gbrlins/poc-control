@@ -516,6 +516,16 @@ h2 {
   vertical-align: middle;
 }
 
+/* .home-action span (above) targets the tile's description text, but also matches a .beta-tag
+   nested inside the tile's <strong> -- .home-action .beta-tag (two classes) beats that rule's
+   specificity (one class + one element) and restores the badge's own look. */
+.home-action .beta-tag {
+  display: inline-block;
+  font-size: 10px;
+  color: #fff;
+  margin-top: 0;
+}
+
 .home-history-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
