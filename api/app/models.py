@@ -63,6 +63,12 @@ class Procedimento(Base):
     origem_conhecimento: Mapped[OrigemConhecimento] = mapped_column(
         Enum(OrigemConhecimento, name="origem_conhecimento"), nullable=False, default=OrigemConhecimento.manual
     )
+    # True quando o conteúdo foi inteiramente escrito pela IA (gerar_rascunho_procedimento, ver
+    # app/classificacao/service.py), sem revisão humana ainda -- a UI mostra um aviso distinto
+    # disso até o próprio usuário confirmar que executou o procedimento com sucesso e validar (ver
+    # POST /api/procedimentos/{id}/validar). Sempre false pro fluxo manual/anexo que já existia.
+    # Migração 0028.
+    gerado_por_ia: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     versao: Mapped[int] = mapped_column(Integer, default=1)
     html_original: Mapped[str] = mapped_column(Text, nullable=False)
     # Idioma detectado do html_original ("pt"|"en"|"es"), setado pela tradução automática do
@@ -362,6 +368,14 @@ class Classificacao(Base):
     procedimento_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("procedimentos.id", ondelete="SET NULL"), nullable=True
     )
+    # Rascunho de procedimento gerado pela IA pra um item amarelo sem match validado (ver
+    # app/classificacao/service.py::gerar_rascunho_procedimento) -- NUNCA confirma o item por si
+    # só (fica `status=rascunho`, invisível pra busca de outros itens até alguém validar, ver
+    # _buscar_candidatos). Distinto de procedimento_id, que só é preenchido quando um
+    # procedimento já VALIDADO confirma o item. Migração 0028.
+    procedimento_rascunho_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("procedimentos.id", ondelete="SET NULL"), nullable=True
+    )
     # True quando o verde veio da busca por histórico compartilhado (ver
     # app/classificacao/service.py::classificar_item e _buscar_candidatos_historico), não de um
     # procedimento validado (procedimento_id) nem de uma pesquisa web -- mesmo papel de
@@ -375,7 +389,16 @@ class Classificacao(Base):
     )
 
     item: Mapped["Item"] = relationship(back_populates="classificacao")
-    procedimento: Mapped[Procedimento | None] = relationship()
+    # foreign_keys explícito nas duas: há duas FKs desta tabela pra procedimentos agora, o
+    # relationship() sem argumento não sabe mais qual delas usar (AmbiguousForeignKeysError).
+    procedimento: Mapped[Procedimento | None] = relationship(foreign_keys=[procedimento_id])
+    procedimento_rascunho: Mapped[Procedimento | None] = relationship(foreign_keys=[procedimento_rascunho_id])
+
+    @property
+    def procedimento_rascunho_titulo(self) -> str | None:
+        """Pro front mostrar o título do rascunho sem precisar navegar até ele (mesmo padrão de
+        RfiItem.procedimento_titulo)."""
+        return self.procedimento_rascunho.titulo if self.procedimento_rascunho else None
 
 
 class VeredictoRfi(str, enum.Enum):

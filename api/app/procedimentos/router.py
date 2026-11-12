@@ -40,6 +40,7 @@ def _criar_procedimento(
     api_key: str | None = None,
     dono_id: uuid.UUID | None = None,
     origem: OrigemConhecimento = OrigemConhecimento.manual,
+    gerado_por_ia: bool = False,
 ) -> Procedimento:
     secoes = extrair_secoes(html)
     if not secoes:
@@ -53,6 +54,7 @@ def _criar_procedimento(
         data_origem=data_origem,
         status=status_valor,
         origem_conhecimento=origem,
+        gerado_por_ia=gerado_por_ia,
         versao=versao,
         html_original=html,
         criado_por_id=dono_id,
@@ -234,6 +236,26 @@ def definir_responsavel(
     procedimento.responsavel_id = novo.id
     db.commit()
     return {"id": procedimento.id, "responsavel_id": procedimento.responsavel_id}
+
+
+@router.post("/{procedimento_id}/validar")
+def validar_procedimento(
+    procedimento_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    """Eleva um procedimento `rascunho` pra `validado` -- a única forma disso acontecer depois da
+    criação (até aqui, status só era fixado no momento de criar: upload manual ou
+    _criar_procedimento). Deliberadamente genérico (não só pros rascunhos gerados por IA, ver
+    app/classificacao/service.py::gerar_rascunho_procedimento): qualquer rascunho manual antigo
+    também ganha um jeito de ser promovido. Sem trava de dono -- mesma política de baixo atrito já
+    usada pelo checkbox "Validado" de anexo de PoC (validar_anexo). Passar a validado faz o
+    procedimento entrar automaticamente na busca de candidatos pra outros itens
+    (_buscar_candidatos já filtra só status=validado) -- nenhuma mudança extra necessária ali."""
+    procedimento = _get_procedimento_or_404(db, procedimento_id)
+    if procedimento.status != StatusProcedimento.rascunho:
+        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Só um procedimento em rascunho pode ser validado")
+    procedimento.status = StatusProcedimento.validado
+    db.commit()
+    return {"id": procedimento.id, "status": procedimento.status}
 
 
 @router.get("/{procedimento_id}/exclusao")

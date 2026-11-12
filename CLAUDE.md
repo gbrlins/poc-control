@@ -88,6 +88,24 @@ Regras:
 
 Ao concluir um item, o usuário pode anexar ou escrever o passo a passo que funcionou e clicar em **"Promover a procedimento validado"**. O procedimento entra na base com embedding, e em POCs futuras itens equivalentes saem verdes.
 
+**Rascunho guiado por IA pra item amarelo sem procedimento (2026-11-13):** quando um item de PoC
+cai em 🟡 amarelo e nenhum procedimento validado confirma (`Classificacao.procedimento_id is
+None`), o usuário pode clicar em "Gerar rascunho guiado com IA" (botão manual, não automático --
+pesquisa + geração + chunking/embedding + tradução pode passar de 1 minuto). O Gemini pesquisa com
+grounding (documentação da versão estável mais recente + procedimentos/tutoriais já publicados,
+`pesquisar_implementacao_item`) e depois redige o HTML estruturado (`gerar_procedimento_guiado`,
+mesma convenção de h2/h3 + "Esperado:" por passo + "Se der erro" + "Limpeza" + "Evidências para o
+relatório" dos procedimentos validados), moldado ao contexto da PoC (cliente/escopo/parâmetros
+técnicos). Cria um `Procedimento` de verdade via `_criar_procedimento` (reaproveita chunking/
+embedding/tradução), mas com `status=rascunho` e `gerado_por_ia=True` -- fica **invisível** pra
+busca de outros itens (`_buscar_candidatos` só olha `status=validado`) até o próprio usuário
+confirmar que executou com sucesso de ponta a ponta e clicar em "Marcar como validado"
+(`POST /api/procedimentos/{id}/validar`, genérico -- também serve pra promover um rascunho manual
+antigo que nunca tinha como ser validado depois da criação). A IA nunca se autoconfirma; o usuário
+julga. `Classificacao.procedimento_rascunho_id` é o vínculo com esse rascunho, distinto de
+`procedimento_id` (reservado a match já validado). Escopo desta rodada: só PoC, não RFI (extensão
+futura natural, mesmo mecanismo serviria pra `RfiItem`/`avaliar_item_rfi`). Migração `0028`.
+
 ## Procedimentos (base de conhecimento)
 
 - Formato de entrada: **HTML** (upload). Converter para texto/markdown para indexar e guardar o HTML original para exibição.

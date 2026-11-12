@@ -57,6 +57,8 @@ class ClassificacaoOut(BaseModel):
     justificativa: str | None
     fontes: list[FonteOut]
     procedimento_id: uuid.UUID | None
+    procedimento_rascunho_id: uuid.UUID | None = None
+    procedimento_rascunho_titulo: str | None = None
     confirmado_por_historico: bool = False
     modelo: str | None
     created_at: datetime

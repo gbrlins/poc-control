@@ -9,7 +9,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.categorias import normalizar as normalizar_categoria
-from app.classificacao.service import atualizar_embedding_historico, classificar_item, sugerir_procedimentos
+from app.classificacao.service import (
+    atualizar_embedding_historico,
+    classificar_item,
+    gerar_rascunho_procedimento,
+    sugerir_procedimentos,
+)
 from app.classificacao.tasks import classificar_pendentes
 from app.config import settings
 from app.db import get_db
@@ -19,6 +24,7 @@ from app.gemini_key import resolve_api_key, resolve_model
 from app.models import (
     Anexo,
     Classificacao,
+    FlagClassificacao,
     Item,
     Nota,
     OrigemClassificacao,
@@ -578,6 +584,43 @@ def classificar_item_individual(
 ):
     item = _get_item_or_404(db, poc_id, item_id)
     classificar_item(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user))
+    db.refresh(item)
+    return item
+
+
+@router.post("/{poc_id}/itens/{item_id}/gerar-rascunho", response_model=ItemOut)
+def gerar_rascunho_item(
+    poc_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Gera um rascunho de procedimento guiado por IA (pesquisa + redação do passo a passo, ver
+    app/classificacao/service.py::gerar_rascunho_procedimento) pra um item amarelo sem nenhum
+    procedimento validado vinculado. Chamada síncrona de propósito: pesquisa + geração + chunking/
+    embedding + tradução pode passar de 1 minuto, mas é o usuário quem aciona isso deliberadamente
+    sabendo da demora (botão dedicado), não um passo automático dentro de classificar_item."""
+    item = _get_item_or_404(db, poc_id, item_id)
+    classificacao = item.classificacao
+    if classificacao is None or classificacao.flag != FlagClassificacao.amarelo:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Só itens classificados como amarelo podem ganhar um rascunho guiado"
+        )
+    if classificacao.procedimento_id is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este item já tem um procedimento validado vinculado")
+    if classificacao.procedimento_rascunho_id is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Este item já tem um rascunho gerado -- exclua-o antes de gerar outro"
+        )
+
+    gerar_rascunho_procedimento(
+        db,
+        item,
+        classificacao,
+        dono_id=current_user.id,
+        api_key=resolve_api_key(current_user),
+        model=resolve_model(current_user),
+    )
     db.refresh(item)
     return item
 

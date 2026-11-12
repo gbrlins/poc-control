@@ -23,6 +23,7 @@ class ProcedimentoListItem(BaseModel):
     cliente_origem: str | None
     status: StatusProcedimento
     origem_conhecimento: OrigemConhecimento = OrigemConhecimento.manual
+    gerado_por_ia: bool = False
     versao: int
     data_origem: date | None
     created_at: datetime

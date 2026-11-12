@@ -672,6 +672,137 @@ def classificar_viabilidade(
     return AvaliacaoViabilidade.model_validate_json(response.text)
 
 
+_IMPLEMENTACAO_PROMPT = """\
+Pesquise na web, priorizando a documentação oficial da versão estável mais recente e \
+procedimentos/tutoriais já publicados (da própria SUSE/Rancher, da comunidade ou de outros \
+fornecedores), sobre como implementar e testar o item de PoC abaixo, no contexto do produto \
+indicado.
+
+Item da PoC:
+\"\"\"
+{item}
+\"\"\"
+
+Contexto do produto/ambiente desta PoC:
+\"\"\"
+{contexto}
+\"\"\"
+
+Responda em português, resumindo os passos encontrados, comandos/configurações relevantes e como \
+validar que cada etapa funcionou. Se a pesquisa não encontrar nada específico pra esta versão, diga \
+isso explicitamente em vez de generalizar.
+"""
+
+
+def pesquisar_implementacao_item(
+    item_texto: str, contexto_produto: str, api_key: str | None = None, model: str | None = None
+) -> tuple[str, list[FonteEvidencia]]:
+    """Mesma mecânica de pesquisar_viabilidade_web (grounding com Google Search, sem
+    response_schema -- limitação documentada no topo deste módulo), mas pedindo o "como fazer"
+    em vez de só "é viável?" -- primeira das duas chamadas de gerar_procedimento_guiado abaixo."""
+    response = _gerar_com_retry(
+        api_key=api_key,
+        contexto="pesquisar_implementacao_item",
+        model=model or _TEXT_MODEL,
+        contents=_IMPLEMENTACAO_PROMPT.format(
+            item=item_texto, contexto=contexto_produto or "(sem contexto adicional)"
+        ),
+        config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]),
+    )
+    texto = response.text or ""
+
+    fontes: list[FonteEvidencia] = []
+    candidate = response.candidates[0] if response.candidates else None
+    grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
+    for chunk in getattr(grounding, "grounding_chunks", None) or []:
+        web = getattr(chunk, "web", None)
+        if web is not None and web.uri:
+            fontes.append(FonteEvidencia(titulo=web.title or web.uri, url=web.uri))
+
+    return texto, fontes
+
+
+class RascunhoProcedimento(BaseModel):
+    titulo: str
+    html: str
+
+
+_RASCUNHO_PROMPT = """\
+Você é um Solutions Architect da SUSE escrevendo um procedimento guiado (runbook) de PoC pra um \
+colega executar, com base na pesquisa abaixo.
+
+Item da PoC a cobrir:
+\"\"\"
+{item}
+\"\"\"
+
+Contexto do produto/ambiente desta PoC:
+\"\"\"
+{contexto}
+\"\"\"
+
+Resultado da pesquisa (documentação/procedimentos já publicados):
+\"\"\"
+{pesquisa}
+\"\"\"
+
+Escreva o procedimento em HTML, em português, seguindo ESTRITAMENTE esta estrutura (mesma \
+convenção dos procedimentos validados já existentes na base):
+- Um <h2> de objetivo/contexto no início, explicando o que será feito e por quê.
+- Passos numerados, cada um num <h2> ou <h3> próprio (ex.: "Passo 1: ..."), com os comandos/\
+configurações necessários e, ao final de cada passo, uma linha "Esperado: ..." descrevendo como \
+confirmar que aquele passo específico funcionou (um teste de validação por etapa, não só no final).
+- Uma seção "Se der erro" com uma tabela (sintoma, causa provável, ação) pros problemas mais \
+comuns que a pesquisa indicou.
+- Uma seção "Limpeza" com os passos pra desfazer o que foi feito, se aplicável.
+- Uma seção final "Evidências para o relatório" listando o que capturar como prova de que \
+funcionou (prints, saídas de comando, etc.), e uma lista das fontes consultadas na pesquisa.
+
+Regras importantes:
+- NUNCA invente um comando, nome de recurso ou parâmetro sem base na pesquisa acima -- se a \
+pesquisa não for específica o bastante pra algum passo, diga isso explicitamente no próprio texto \
+do passo em vez de generalizar ou supor.
+- Use <h2>/<h3> de verdade (não negrito simulando título) -- cada seção/passo vira um trecho \
+buscável separado na base de conhecimento.
+- Molde os exemplos/nomes ao contexto do produto informado acima, não genéricos.
+
+Responda com titulo (título curto do procedimento) e html (o procedimento completo).
+"""
+
+
+def gerar_procedimento_guiado(
+    item_texto: str,
+    contexto_produto: str,
+    pesquisa_texto: str,
+    fontes: list[FonteEvidencia],
+    api_key: str | None = None,
+    model: str | None = None,
+) -> RascunhoProcedimento:
+    """Segunda chamada do par (classificacao/service.py::gerar_rascunho_procedimento): gera o
+    HTML estruturado a partir da pesquisa já feita por pesquisar_implementacao_item -- sem
+    grounding (resultado já veio pronto), com response_schema (mesma limitação de
+    grounding+response_schema das outras funções deste módulo)."""
+    fontes_texto = "\n".join(f"- {f.titulo}: {f.url}" for f in fontes) or "(nenhuma fonte com URL retornada)"
+    response = _gerar_com_retry(
+        api_key=api_key,
+        contexto="gerar_procedimento_guiado",
+        model=model or _TEXT_MODEL,
+        contents=_RASCUNHO_PROMPT.format(
+            item=item_texto,
+            contexto=contexto_produto or "(sem contexto adicional)",
+            pesquisa=f"{pesquisa_texto or '(a pesquisa não retornou texto)'}\n\nFontes:\n{fontes_texto}",
+        ),
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=RascunhoProcedimento,
+        ),
+    )
+    parsed = response.parsed
+    if isinstance(parsed, RascunhoProcedimento):
+        return parsed
+    return RascunhoProcedimento.model_validate_json(response.text)
+
+
 _ATENDIMENTO_RFI_PROMPT = """\
 Pesquise na web (documentação oficial da SUSE, Rancher, release notes, comparativos técnicos e outras \
 fontes confiáveis) se alguma solução do portfólio SUSE (SUSE Linux Enterprise Server, Rancher Prime, \

@@ -7,7 +7,9 @@ from app.gemini import (
     classificar_viabilidade,
     confirmar_match,
     embed_query,
+    gerar_procedimento_guiado,
     modelo_efetivo,
+    pesquisar_implementacao_item,
     pesquisar_viabilidade_web,
 )
 from app.models import (
@@ -15,6 +17,7 @@ from app.models import (
     FlagClassificacao,
     Item,
     OrigemClassificacao,
+    OrigemConhecimento,
     Procedimento,
     ProcedimentoChunk,
     RfiItem,
@@ -22,6 +25,7 @@ from app.models import (
     VeredictoRfi,
 )
 from app.pocs.resultados import item_executado_sem_problemas
+from app.procedimentos.router import _criar_procedimento
 
 TOP_K = 5
 
@@ -273,3 +277,58 @@ def classificar_item(
     return _salvar_auto(
         db, item, flag=flag, justificativa=justificativa, fontes=fontes_dump, procedimento_id=None, modelo=modelo_usado
     )
+
+
+def _contexto_produto_poc(poc) -> str:
+    """Monta um texto livre com o que a PoC já sabe sobre cliente/escopo/ambiente, pra moldar o
+    procedimento guiado (gerar_rascunho_procedimento) à realidade dela em vez de ficar genérico --
+    dump simples, sem tentar parsear parametros_tecnicos campo a campo, já que o prompt consegue
+    extrair o que for relevante do próprio texto."""
+    partes = [f"PoC: {poc.titulo}", f"Cliente: {poc.cliente}"]
+    if poc.escopo:
+        partes.append(f"Escopo: {poc.escopo}")
+    if poc.parametros_tecnicos:
+        partes.append(f"Parâmetros técnicos registrados (produtos/rede/infra): {poc.parametros_tecnicos}")
+    return "\n".join(partes)
+
+
+def gerar_rascunho_procedimento(
+    db: Session,
+    item: Item,
+    classificacao: Classificacao,
+    dono_id: uuid.UUID,
+    api_key: str | None = None,
+    model: str | None = None,
+) -> Procedimento:
+    """Rascunho de procedimento guiado pra um item amarelo sem nenhum procedimento validado (ver
+    app/pocs/router.py::gerar_rascunho_item) -- pesquisa com grounding + geração estruturada do
+    HTML (mesmo par de chamadas usado pelo caminho amarelo/vermelho de classificar_item acima),
+    reaproveitando _criar_procedimento (chunking + embedding + tradução) pra criar como
+    `status=rascunho`. Fica deliberadamente invisível pra _buscar_candidatos (que só olha
+    status=validado) até o usuário confirmar que executou com sucesso e chamar
+    POST /api/procedimentos/{id}/validar -- a IA nunca se autoconfirma."""
+    texto = texto_item(item)
+    contexto_produto = _contexto_produto_poc(item.poc)
+
+    pesquisa_texto, fontes = pesquisar_implementacao_item(texto, contexto_produto, api_key=api_key, model=model)
+    rascunho = gerar_procedimento_guiado(texto, contexto_produto, pesquisa_texto, fontes, api_key=api_key, model=model)
+
+    procedimento = _criar_procedimento(
+        db,
+        titulo=rascunho.titulo[:255],
+        tags=[item.categoria] if item.categoria else [],
+        categorias=[item.categoria_codigo] if item.categoria_codigo else [],
+        cliente_origem=item.poc.cliente,
+        data_origem=None,
+        status_valor=StatusProcedimento.rascunho,
+        versao=1,
+        html=rascunho.html,
+        api_key=api_key,
+        dono_id=dono_id,
+        origem=OrigemConhecimento.poc,
+        gerado_por_ia=True,
+    )
+    classificacao.procedimento_rascunho_id = procedimento.id
+    db.commit()
+    db.refresh(classificacao)
+    return procedimento

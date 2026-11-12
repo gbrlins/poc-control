@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   api,
+  ApiError,
   CondicaoItem,
   Fase,
   FlagClassificacao,
@@ -1092,6 +1093,8 @@ function ItemRow({
   const [conducao, setConducao] = useState<CondicaoItem | "">(item.conducao ?? "");
   const [salvando, setSalvando] = useState(false);
   const [reavaliando, setReavaliando] = useState(false);
+  const [gerandoRascunho, setGerandoRascunho] = useState(false);
+  const [erroRascunho, setErroRascunho] = useState<string | null>(null);
   const [editandoManual, setEditandoManual] = useState(false);
   const [flagManual, setFlagManual] = useState<FlagClassificacao>(item.classificacao?.flag ?? "amarelo");
   const [procedimentoManual, setProcedimentoManual] = useState(item.classificacao?.procedimento_id ?? "");
@@ -1202,6 +1205,19 @@ function ItemRow({
       setJustificativaManual(atualizado.classificacao?.justificativa ?? "");
     } finally {
       setReavaliando(false);
+    }
+  }
+
+  async function gerarRascunho() {
+    setGerandoRascunho(true);
+    setErroRascunho(null);
+    try {
+      const atualizado = await api.gerarRascunhoItem(pocId, item.id);
+      onAtualizado(atualizado);
+    } catch (e) {
+      setErroRascunho(e instanceof ApiError ? e.message : t("itemRow.erroGerarRascunho"));
+    } finally {
+      setGerandoRascunho(false);
     }
   }
 
@@ -1549,6 +1565,39 @@ function ItemRow({
                     ))}
                   </ul>
                 )}
+                {item.classificacao.flag === "amarelo" &&
+                  !item.classificacao.procedimento_id &&
+                  (item.classificacao.procedimento_rascunho_id ? (
+                    <p style={{ marginTop: 10 }}>
+                      <span className="badge badge-muted">{t("itemRow.rascunhoGeradoPorIa")}</span>{" "}
+                      <Link
+                        to={`/procedimentos/${item.classificacao.procedimento_rascunho_id}`}
+                        className="btn btn-secondary"
+                        style={{ display: "inline-flex", marginLeft: 6 }}
+                      >
+                        {t("itemRow.verRascunho")}
+                        {item.classificacao.procedimento_rascunho_titulo
+                          ? `: ${item.classificacao.procedimento_rascunho_titulo}`
+                          : ""}
+                      </Link>
+                    </p>
+                  ) : (
+                    <div style={{ marginTop: 10 }}>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => void gerarRascunho()}
+                        disabled={gerandoRascunho}
+                        type="button"
+                      >
+                        {gerandoRascunho ? t("itemRow.gerandoRascunho") : t("itemRow.gerarRascunho")}
+                      </button>
+                      {erroRascunho && (
+                        <p className="alert alert-error" style={{ marginTop: 8 }}>
+                          {erroRascunho}
+                        </p>
+                      )}
+                    </div>
+                  ))}
               </div>
             ) : (
               <p className="empty-state" style={{ marginTop: 8 }}>

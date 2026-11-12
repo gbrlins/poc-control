@@ -55,6 +55,7 @@ export interface ProcedimentoListItem {
   cliente_origem: string | null;
   status: "rascunho" | "validado";
   origem_conhecimento: OrigemConhecimento;
+  gerado_por_ia: boolean;
   versao: number;
   data_origem: string | null;
   created_at: string;
@@ -142,6 +143,8 @@ export interface Classificacao {
   justificativa: string | null;
   fontes: Fonte[];
   procedimento_id: string | null;
+  procedimento_rascunho_id: string | null;
+  procedimento_rascunho_titulo: string | null;
   confirmado_por_historico: boolean;
   modelo: string | null;
   created_at: string;
@@ -398,6 +401,8 @@ export const api = {
     request<ProcedimentoDetail>(`/api/procedimentos/${id}?lang=${lang}`),
   criarProcedimento: (form: FormData) =>
     request<ProcedimentoListItem>("/api/procedimentos", { method: "POST", body: form }),
+  validarProcedimento: (id: string) =>
+    request<{ id: string; status: string }>(`/api/procedimentos/${id}/validar`, { method: "POST" }),
 
   syncConfig: () => request<{ configurado: boolean }>("/api/sync/config"),
   listarProcedimentosRemotos: () => request<ProcedimentoListItem[]>("/api/sync/remoto/procedimentos"),
@@ -452,6 +457,8 @@ export const api = {
     }),
   classificarPendentes: (pocId: string) =>
     request<{ status: string }>(`/api/pocs/${pocId}/classificar-pendentes`, { method: "POST" }),
+  gerarRascunhoItem: (pocId: string, itemId: string) =>
+    request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}/gerar-rascunho`, { method: "POST" }),
 
   criarSessao: (pocId: string, payload: SessaoPayload) =>
     request<Sessao>(`/api/pocs/${pocId}/sessoes`, { method: "POST", body: JSON.stringify(payload) }),
