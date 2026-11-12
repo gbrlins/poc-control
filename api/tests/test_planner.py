@@ -51,13 +51,18 @@ def _extraido(**kw):
 def test_capabilities_sem_autenticacao():
     r = _cliente(autenticado=False).get("/api/planner/capabilities")
     assert r.status_code == 200
-    assert r.json() == {"kind": "poc-control", "schema": 1, "features": ["hydrate", "feasibility", "procedures", "execution", "history"]}
+    assert r.json() == {
+        "kind": "poc-control",
+        "schema": 1,
+        "features": ["hydrate", "feasibility", "procedures", "execution", "history", "draft"],
+    }
 
 
 def test_hydrate_e_feasibility_exigem_login():
     c = _cliente(autenticado=False)
     assert c.post("/api/planner/hydrate", data={"texto": "x", "catalogo": json.dumps(CATALOGO)}).status_code == 401
     assert c.post("/api/planner/feasibility", json={"tests": [{"id": "a", "title": "t"}]}).status_code == 401
+    assert c.post("/api/planner/procedure-draft", json={"test": {"id": "a", "title": "t"}}).status_code == 401
 
 
 def test_montar_hidratacao_descarta_o_que_nao_e_valido():
@@ -126,3 +131,45 @@ def test_feasibility_contrato(monkeypatch):
     muitos = [{"id": str(i), "title": "t"} for i in range(service.LIMITE_TESTES_ADERENCIA + 1)]
     assert c.post("/api/planner/feasibility", json={"tests": muitos}).status_code == 422
     assert c.post("/api/planner/feasibility", json={"tests": []}).status_code == 422
+
+
+def test_procedure_draft_contrato(monkeypatch):
+    import uuid
+
+    from app.models import OrigemConhecimento, Procedimento, StatusProcedimento
+
+    chamado = {}
+
+    def falso(db, titulo, esperado, produto, cliente, escopo, dono_id, api_key, model):
+        chamado.update(titulo=titulo, esperado=esperado, produto=produto, cliente=cliente, escopo=escopo)
+        return Procedimento(
+            id=uuid.uuid4(), titulo="Criar VM no Harvester (rascunho)", tags=["virtualization"],
+            cliente_origem=cliente or None, status=StatusProcedimento.rascunho,
+            origem_conhecimento=OrigemConhecimento.planejador, gerado_por_ia=True, versao=1,
+            html_original="<h2>Objetivo</h2><p>x</p>",
+        )
+
+    monkeypatch.setattr(planner_router, "gerar_rascunho_planner", falso)
+    c = _cliente()
+    body = {
+        "test": {"id": "virt-vm-create", "product": "virtualization", "title": "Criar VM", "expected": "VM criada"},
+        "client": "Acme", "scope": "Substituição de VMware",
+    }
+    r = c.post("/api/planner/procedure-draft", json=body)
+    assert r.status_code == 200
+    j = r.json()
+    assert j["status"] == "rascunho" and j["tags"] == ["virtualization"] and j["html_original"].startswith("<h2>")
+    assert chamado == {
+        "titulo": "Criar VM", "esperado": "VM criada", "produto": "virtualization",
+        "cliente": "Acme", "escopo": "Substituição de VMware",
+    }
+
+
+def test_procedure_draft_falha_do_gemini_vira_502(monkeypatch):
+    def quebra(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(planner_router, "gerar_rascunho_planner", quebra)
+    c = _cliente()
+    r = c.post("/api/planner/procedure-draft", json={"test": {"id": "a", "product": "p", "title": "t"}})
+    assert r.status_code == 502

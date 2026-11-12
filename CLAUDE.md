@@ -106,6 +106,23 @@ julga. `Classificacao.procedimento_rascunho_id` é o vínculo com esse rascunho,
 `procedimento_id` (reservado a match já validado). Escopo desta rodada: só PoC, não RFI (extensão
 futura natural, mesmo mecanismo serviria pra `RfiItem`/`avaliar_item_rfi`). Migração `0028`.
 
+**Mesmo rascunho guiado, agora dentro do planejador (2026-11-12):** o planejador (`poc-planner/`)
+tem seu próprio catálogo de testes e sua própria biblioteca de procedimentos (local, no navegador),
+sem Item nem Classificacao de PoC -- o teste só ganha um Item de verdade se/quando o plano for
+"habilitado" como execução (ver "Importar documento do cliente" acima). Na tela de vincular
+procedimento a um teste (`procPickerHtml` em `poc-planner/index.html`), um botão "Gerar rascunho
+guiado com IA" (só quando `connectorHas('draft')`, ou seja, servido por este backend) chama
+`POST /api/planner/procedure-draft` com título/resultado esperado do teste (sempre em português,
+mesma regra de idioma do conteúdo gerado por IA) e cliente/escopo do projeto. O backend reaproveita
+o mesmo par de chamadas Gemini de `gerar_rascunho_procedimento` (`app/planner/service.py::gerar_rascunho_planner`)
+e cria um `Procedimento` de verdade (`status=rascunho`, `gerado_por_ia=True`,
+`origem_conhecimento=planejador` -- valor novo do enum, migração `0029`, já que não existe Item
+nem RFI por trás). A resposta tem a mesma forma de uma linha+detalhe de `GET /api/procedimentos`, então
+o planejador a importa pra biblioteca local e já vincula ao teste pelos MESMOS conversores que usa
+pra importar um procedimento do servidor (`serverProcClean`/`serverProcToLib`), sem parser novo.
+Continua `rascunho` (invisível pra `_buscar_candidatos`) até alguém confirmar a execução e validar
+pela tela de Procedimentos do lado de cá -- a IA nunca se autoconfirma, mesma regra do lado PoC.
+
 ## Procedimentos (base de conhecimento)
 
 - Formato de entrada: **HTML** (upload). Converter para texto/markdown para indexar e guardar o HTML original para exibição.

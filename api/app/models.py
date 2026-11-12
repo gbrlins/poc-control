@@ -38,13 +38,16 @@ class StatusProcedimento(str, enum.Enum):
 
 class OrigemConhecimento(str, enum.Enum):
     """De onde um Procedimento veio: digitado/upload manual, promovido de um item de PoC
-    (app/pocs/router.py::validar_anexo) ou promovido de uma resposta de RFI
-    (app/rfi/router.py::promover_item_rfi). Distinto de OrigemClassificacao (auto/manual de uma
+    (app/pocs/router.py::validar_anexo), promovido de uma resposta de RFI
+    (app/rfi/router.py::promover_item_rfi) ou gerado por IA a partir de um teste do planejador
+    (app/planner/router.py::procedure_draft, migração 0029 -- a essa altura o teste ainda não tem
+    Item nenhum, então não cabe em `poc`). Distinto de OrigemClassificacao (auto/manual de uma
     classificação) -- este é sobre a origem do CONTEÚDO, não de quem o classificou."""
 
     manual = "manual"
     poc = "poc"
     rfi = "rfi"
+    planejador = "planejador"
 
 
 class Procedimento(Base):

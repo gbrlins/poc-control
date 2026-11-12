@@ -1,6 +1,8 @@
-"""Recursos do planejador que não guardam nada no banco: importar documento do cliente (sugestão de
-dados do projeto, rede, produtos e testes do catálogo do planejador) e sugestão de aderência por
-pesquisa na web. Contrato com o `poc-planner/index.html` (R1/R7 em poc-planner/docs/design-unification.md):
+"""Recursos do planejador: importar documento do cliente (sugestão de dados do projeto, rede,
+produtos e testes do catálogo do planejador), sugestão de aderência por pesquisa na web e rascunho
+de procedimento guiado por IA (gerar_rascunho_planner -- este último é a ÚNICA função aqui que grava
+algo no banco, um Procedimento novo; todo o resto é sem estado). Contrato com o
+`poc-planner/index.html` (R1/R7 em poc-planner/docs/design-unification.md):
 
 - o catálogo de testes é do PLANEJADOR e vem na requisição; aqui nunca se inventa um id;
 - nada de credencial: nem o prompt pede, nem a resposta tem lugar pra isso (lista fechada de campos);
@@ -9,11 +11,22 @@ pesquisa na web. Contrato com o `poc-planner/index.html` (R1/R7 em poc-planner/d
 import ipaddress
 import json
 import re
+import uuid
 
 from google.genai import types
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from app.gemini import FonteEvidencia, _TEXT_MODEL, _gerar_com_retry, pesquisar_viabilidade_web
+from app.gemini import (
+    FonteEvidencia,
+    _TEXT_MODEL,
+    _gerar_com_retry,
+    gerar_procedimento_guiado,
+    pesquisar_implementacao_item,
+    pesquisar_viabilidade_web,
+)
+from app.models import OrigemConhecimento, Procedimento, StatusProcedimento
+from app.procedimentos.router import _criar_procedimento
 
 PRODUTOS_PLANEJADOR = (
     "virtualization", "rancher", "security", "storage", "observability", "registry", "appcollection", "manager",
@@ -274,3 +287,51 @@ def _fontes_unicas(fontes: list[FonteEvidencia]) -> list[dict]:
             vistas.add(f.url)
             out.append({"title": _texto(f.titulo, 150) or f.url, "url": f.url})
     return out[:5]
+
+
+def _contexto_planner(produto: str, cliente: str, escopo: str) -> str:
+    partes = [f"Produto SUSE: {produto}"] if produto else []
+    if cliente:
+        partes.append(f"Cliente: {cliente}")
+    if escopo:
+        partes.append(f"Escopo da PoC: {escopo}")
+    return "\n".join(partes)
+
+
+def gerar_rascunho_planner(
+    db: Session,
+    titulo: str,
+    esperado: str,
+    produto: str,
+    cliente: str,
+    escopo: str,
+    dono_id: uuid.UUID,
+    api_key: str | None,
+    model: str | None,
+) -> Procedimento:
+    """Mesmo mecanismo de app/classificacao/service.py::gerar_rascunho_procedimento (pesquisa com
+    grounding + geração estruturada do HTML), só que pra um teste do planejador em vez de um
+    Item/Classificacao de PoC -- o teste ainda não tem Item nenhum nesse ponto (só ganha um se/
+    quando o plano for "habilitado" como execução, ver execution_payload no poc-control). Cria como
+    status=rascunho (invisível pra _buscar_candidatos até o usuário validar) e
+    origem=OrigemConhecimento.planejador, pra distinguir de um rascunho nascido de um Item de PoC
+    de verdade."""
+    item_texto = f"{titulo}\nResultado esperado: {esperado}" if esperado else titulo
+    contexto = _contexto_planner(produto, cliente, escopo)
+    pesquisa_texto, fontes = pesquisar_implementacao_item(item_texto, contexto, api_key=api_key, model=model)
+    rascunho = gerar_procedimento_guiado(item_texto, contexto, pesquisa_texto, fontes, api_key=api_key, model=model)
+    return _criar_procedimento(
+        db,
+        titulo=rascunho.titulo[:255],
+        tags=[produto] if produto else [],
+        categorias=[],
+        cliente_origem=cliente or None,
+        data_origem=None,
+        status_valor=StatusProcedimento.rascunho,
+        versao=1,
+        html=rascunho.html,
+        api_key=api_key,
+        dono_id=dono_id,
+        origem=OrigemConhecimento.planejador,
+        gerado_por_ia=True,
+    )

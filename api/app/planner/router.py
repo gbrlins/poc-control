@@ -1,5 +1,7 @@
 import json
 import pathlib
+import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
@@ -13,14 +15,16 @@ from app.models import User
 from app.planner.service import (
     LIMITE_TESTES_ADERENCIA,
     extrair_hidratacao,
+    gerar_rascunho_planner,
     sugerir_aderencia,
     validar_catalogo,
 )
 from app.pocs.planilha_import import texto_de_planilha
 from app.pocs.resultados import historico_por_catalogo
 
-# Recursos do "SUSE PoC Planner" (poc-planner/index.html) que precisam de servidor. Todos sem estado:
-# nada é gravado no banco aqui (o registro único da PoC é a ADR 1 do plano de unificação).
+# Recursos do "SUSE PoC Planner" (poc-planner/index.html) que precisam de servidor. A maioria é sem
+# estado (o registro único da PoC é a ADR 1 do plano de unificação); a exceção é /procedure-draft,
+# que cria um Procedimento de verdade (ver gerar_rascunho_planner).
 router = APIRouter(prefix="/api/planner", tags=["planner"])
 
 _LIMITE_ARQUIVO = 25 * 1024 * 1024
@@ -30,7 +34,11 @@ _LIMITE_ARQUIVO = 25 * 1024 * 1024
 def capabilities():
     """Sem autenticação e sem corpo de entrada: é como o planejador descobre que está servido por um
     poc-control (e só então mostra os controles extras). Não revela nada além da lista de recursos."""
-    return {"kind": "poc-control", "schema": 1, "features": ["hydrate", "feasibility", "procedures", "execution", "history"]}
+    return {
+        "kind": "poc-control",
+        "schema": 1,
+        "features": ["hydrate", "feasibility", "procedures", "execution", "history", "draft"],
+    }
 
 
 @router.post("/hydrate")
@@ -123,3 +131,61 @@ def history(
     if not lista or len(lista) > 200 or any(len(i) > 80 for i in lista):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Informe de 1 a 200 ids de teste")
     return {"kind": "suse-poc-history", "schema": 1, "results": historico_por_catalogo(db, lista)}
+
+
+class ProcedureDraftIn(BaseModel):
+    test: TesteAderencia
+    client: str = Field(default="", max_length=200)
+    scope: str = Field(default="", max_length=2000)
+
+
+class ProcedureDraftOut(BaseModel):
+    id: uuid.UUID
+    titulo: str
+    tags: list[str]
+    cliente_origem: str | None
+    status: str
+    versao: int
+    data_origem: date | None
+    html_original: str
+
+
+@router.post("/procedure-draft", response_model=ProcedureDraftOut)
+def procedure_draft(
+    payload: ProcedureDraftIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rascunho de procedimento guiado por IA pra um teste do planejador sem nenhum procedimento que
+    sirva na biblioteca local (mesmo mecanismo de app/classificacao/service.py::gerar_rascunho_procedimento,
+    usado pro lado amarelo da execução de PoC -- ver gerar_rascunho_planner). Cria um Procedimento de
+    verdade (status=rascunho, gerado_por_ia=True, origem=planejador): some da busca automática de
+    candidatos até o próprio usuário confirmar que executou com sucesso e validar, mas já aparece em
+    GET /api/procedimentos pro planejador puxar e linkar como se fosse um procedimento do servidor
+    (ver serverProcClean/serverProcToLib em poc-planner/index.html). Chamada síncrona de propósito:
+    pesquisa + geração + chunking/embedding/tradução pode passar de 1 minuto, mas é o usuário quem
+    aciona isso deliberadamente (botão dedicado na tela de vincular procedimento)."""
+    try:
+        procedimento = gerar_rascunho_planner(
+            db,
+            payload.test.title,
+            payload.test.expected,
+            payload.test.product,
+            payload.client.strip(),
+            payload.scope.strip(),
+            current_user.id,
+            resolve_api_key(current_user),
+            resolve_model(current_user),
+        )
+    except Exception as exc:  # noqa: BLE001 - qualquer erro da chamada ao Gemini vira 502 com mensagem acionável
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, interpretar_erro_gemini(exc))
+    return ProcedureDraftOut(
+        id=procedimento.id,
+        titulo=procedimento.titulo,
+        tags=procedimento.tags,
+        cliente_origem=procedimento.cliente_origem,
+        status=procedimento.status.value,
+        versao=procedimento.versao,
+        data_origem=procedimento.data_origem,
+        html_original=procedimento.html_original,
+    )

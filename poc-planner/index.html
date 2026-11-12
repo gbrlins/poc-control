@@ -1911,12 +1911,26 @@ function procCandidates(picker, testText, productId){
   const ranked = procRank(testText, productId, list), q = procFold(picker.query).trim();
   return q ? ranked.filter(r=>r.fold.indexOf(q)>=0) : ranked.filter(r=>r.kw>=PROC_MIN_SCORE).slice(0, PROC_MAX_SUGGESTIONS);
 }
+/* Botão "Gerar rascunho guiado com IA" dentro do seletor de procedimento (POST /api/planner/procedure-draft,
+   só quando connectorHas('draft')) -- mesmo mecanismo do lado amarelo da execução de PoC
+   (app/classificacao/service.py::gerar_rascunho_procedimento), mas pra um teste do planejador sem Item
+   nenhum ainda. Fica visível mesmo com sugestões na lista: às vezes nenhuma serve de verdade. */
+function procDraftHtml(p, x, g){
+  if(!connectorHas('draft')) return '';
+  const t = x.t, busy = !!draftBusy[t.id];
+  return '<div class="flex items-center gap-2 flex-wrap" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--gray-100);">'
+    + '<button class="btn btn-secondary btn-sm" '+(busy?'disabled ':'')+'onclick="P.draftGenerate(\''+p.id+'\','+x.i+')">' + Icon('zap') + ' '
+      + (busy ? g('Gerando rascunho com IA…','Generating AI draft…','Generando borrador con IA…') : g('Nenhum serve? Gerar rascunho guiado com IA','None fit? Generate AI-guided draft','¿Ninguno sirve? Generar borrador guiado con IA')) + '</button>'
+    + (draftError ? '<div class="alert alert-warn mt-2" style="width:100%;">'+Icon('alert')+' '+esc(draftError)+'</div>' : '')
+    + '</div>';
+}
 function procPickerHtml(p, x, g){
   const ps = procPicker, i = x.i, lib = loadLibrary();
   const box = (inner)=>'<div class="field-box no-print" style="margin-top:2px;">'+inner+'</div>';
   if(!lib.length) return box('<div class="text-xs">' + g('A biblioteca de procedimentos está vazia neste navegador.','The procedure library is empty in this browser.','La biblioteca de procedimientos está vacía en este navegador.')
     + ' <a href="#" style="color:var(--suse-base);font-weight:700;" onclick="P.go(\'library\');return false;">' + g('Importar procedimentos','Import procedures','Importar procedimientos') + '</a> '
-    + '<button class="btn btn-ghost btn-sm" onclick="P.procPickClose()">' + g('Fechar','Close','Cerrar') + '</button></div>');
+    + '<button class="btn btn-ghost btn-sm" onclick="P.procPickClose()">' + g('Fechar','Close','Cerrar') + '</button></div>'
+    + procDraftHtml(p, x, g));
   const cands = procCandidates(ps, procTestText(x.t), p.id);
   const rows = cands.map(c=>{
     const q = c.proc, hint = [].concat(c.why.product ? [g('produto','product','producto')] : [], c.why.tags.map(t=>'#'+t), c.why.words.slice(0,4)).map(esc).join(' · ');
@@ -1930,7 +1944,8 @@ function procPickerHtml(p, x, g){
       + '<label class="flex items-center gap-2" style="cursor:pointer;font-size:11.5px;font-weight:700;"><input type="checkbox" '+(ps.all?'checked':'')+' onchange="P.procPickAll(this.checked)" style="width:14px;height:14px;"> ' + g('versões anteriores','older versions','versiones anteriores') + '</label>'
       + '<button class="btn btn-ghost btn-sm" onclick="P.procPickClose()">' + g('Fechar','Close','Cerrar') + '</button></div>'
     + '<div class="text-xs text-muted mt-2">' + (ps.query ? g('Resultado da busca','Search results','Resultados de la búsqueda') : g('Sugestões por palavras-chave, tags e produto','Suggestions by keywords, tags and product','Sugerencias por palabras clave, tags y producto')) + '</div>'
-    + (rows || '<p class="text-xs text-muted mt-2">' + (ps.query ? g('Nada encontrado.','Nothing found.','No se encontró nada.') : g('Nenhuma sugestão com acerto suficiente. Busque pelo nome ou tag.','No suggestion matches well enough. Search by name or tag.','Ninguna sugerencia coincide lo suficiente. Busque por nombre o tag.')) + '</p>'));
+    + (rows || '<p class="text-xs text-muted mt-2">' + (ps.query ? g('Nada encontrado.','Nothing found.','No se encontró nada.') : g('Nenhuma sugestão com acerto suficiente. Busque pelo nome ou tag.','No suggestion matches well enough. Search by name or tag.','Ninguna sugerencia coincide lo suficiente. Busque por nombre o tag.')) + '</p>')
+    + procDraftHtml(p, x, g));
 }
 function procLinkLine(p, x, g){
   const t = x.t, i = x.i, lib = loadLibrary(), L = state.lang;
@@ -3584,7 +3599,7 @@ function renderSummaryView(){
    Tudo o que volta é tratado como hostil: lista de chaves permitidas, ids conferidos contra o catálogo
    do próprio planner, nada de credenciais, e só entra no projeto depois da tela de revisão (R7). */
 const CONNECTOR_BASE = '/api/planner';
-const CONNECTOR_FEATURES = ['hydrate','feasibility','procedures','execution','history'];
+const CONNECTOR_FEATURES = ['hydrate','feasibility','procedures','execution','history','draft'];
 let connector = { status:'off', features:[] };
 let connectorIO = (typeof fetch==='function') ? (url,opts)=>fetch(url,opts) : null;   // trocável nos testes
 function connectorEligible(){ return !!connectorIO && typeof location!=='undefined' && (location.protocol==='http:' || location.protocol==='https:'); }
@@ -3772,6 +3787,37 @@ function suggestFitWeb(productId, i){
     })
     .catch(e=>{ fitError = e && e.code==='shape' ? g('Resposta do servidor em formato inesperado.','Unexpected server response.','Respuesta del servidor con formato inesperado.') : connectorErrorText(e,g); })
     .then(()=>{ delete fitBusy[t.id]; render(); });
+}
+/* Rascunho guiado por IA pra um teste sem procedimento que sirva, POST /api/planner/procedure-draft
+   (ver app/planner/router.py::procedure_draft). A resposta tem a MESMA forma de uma linha+detalhe de
+   /api/procedimentos, então entra na biblioteca local pelos conversores que o servidor já usa
+   (serverProcClean/serverProcToLib) -- sem parser novo nenhum. Conteúdo sempre em português (regra do
+   projeto para o que a IA gera), independente do idioma da tela (L): só o título do catálogo e o
+   resultado esperado precisam ir em pt pro Gemini, nunca o que a UI mostra em en/es. */
+let draftBusy = {}, draftError = '';
+function generateProcedureDraft(productId, i){
+  const t = (state.testCases[productId]||[])[i]; if(!t || draftBusy[t.id] || !connectorHas('draft')) return;
+  const L = state.lang, g = (pt,en,es)=>({pt,en,es})[L] || en, pr = state.project;
+  draftBusy[t.id] = true; draftError = ''; render();
+  const body = { test:{ id:t.catalogId||t.id, product:productId, title:testTitle(t,'pt'), expected:testExpected(t,'pt') },
+    client: pr.clientOrganization || '', scope: [pr.presalesUseCase, pr.businessIssue, pr.targetInfrastructure].filter(Boolean).join(' ') };
+  return connectorSend('/procedure-draft', { headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify(body) })
+    .then(j=>{
+      const rows = serverProcClean([j]);
+      if(!rows || !rows[0]) throw { code:'shape' };
+      const rec = serverProcToLib(rows[0], j);
+      if(!rec) throw { code:'shape' };
+      const res = libraryImportData({ procedures:[rec] });
+      if(res.error) throw { code:'storage', error:res.error };
+      if(!res.added && !res.skipped) throw { code:'shape' };
+      t.procId = rec.id; t.procVersion = rec.version; procPicker = null; saveState();
+    })
+    .catch(e=>{
+      draftError = e && e.code==='shape' ? g('Resposta do servidor em formato inesperado.','Unexpected server response.','Respuesta del servidor con formato inesperado.')
+        : e && e.code==='storage' ? (e.error==='quota' ? libraryQuotaText() : libraryErrorText())
+        : connectorErrorText(e,g);
+    })
+    .then(()=>{ delete draftBusy[t.id]; render(); });
 }
 function fitSuggestionHtml(p, i, t, g, L){
   const s = t.fitSuggestion, busy = !!fitBusy[t.id];
@@ -4120,6 +4166,7 @@ window.P = {
     t.procId = ''; t.procVersion = 0; saveState(); render();
   },
   testOpenProc(procId){ if(!loadLibrary().some(q=>q.id===procId)) return; libraryReturnTo = 'tests'; libraryOpenId = procId; libraryNotice = null; go('library'); },
+  draftGenerate: generateProcedureDraft,
   libDelete(id){
     const p = loadLibrary().filter(x=>x.id===id)[0]; if(!p) return;
     if(!confirm(({pt:'Excluir este procedimento da biblioteca?',en:'Delete this procedure from the library?',es:'¿Eliminar este procedimiento de la biblioteca?'})[state.lang] + '\n' + p.title + ' v' + p.version)) return;
