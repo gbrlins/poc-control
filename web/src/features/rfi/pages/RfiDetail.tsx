@@ -15,21 +15,93 @@ const VEREDITO_BADGE: Record<VeredictoRfi, string> = {
   sem_evidencia: "badge-muted",
 };
 
+const VEREDITO_LABEL_KEY: Record<VeredictoRfi, string> = {
+  atende: "rfiItemRow.atende",
+  atende_parcial: "rfiItemRow.atendeParcial",
+  nao_atende: "rfiItemRow.naoAtende",
+  sem_evidencia: "rfiItemRow.semEvidencia",
+};
+
+function veredictoLabels(t: (key: string) => string): Record<VeredictoRfi, string> {
+  const chaves: VeredictoRfi[] = ["atende", "atende_parcial", "nao_atende", "sem_evidencia"];
+  return Object.fromEntries(chaves.map((v) => [v, t(VEREDITO_LABEL_KEY[v])])) as Record<VeredictoRfi, string>;
+}
+
 function contagemVeredito(
   contagem: { atende: number; atende_parcial: number; nao_atende: number; sem_evidencia: number },
   t: (key: string) => string,
 ): string {
   const chaves: VeredictoRfi[] = ["atende", "atende_parcial", "nao_atende", "sem_evidencia"];
-  const labelKey: Record<VeredictoRfi, string> = {
-    atende: "rfiItemRow.atende",
-    atende_parcial: "rfiItemRow.atendeParcial",
-    nao_atende: "rfiItemRow.naoAtende",
-    sem_evidencia: "rfiItemRow.semEvidencia",
-  };
   return chaves
     .filter((v) => contagem[v] > 0)
-    .map((v) => `${contagem[v]} ${t(labelKey[v]).toLowerCase()}`)
+    .map((v) => `${contagem[v]} ${t(VEREDITO_LABEL_KEY[v]).toLowerCase()}`)
     .join(" · ");
+}
+
+// Mesmo texto do início de JUSTIFICATIVA_ERRO em api/app/rfi/service.py -- deixa o feed de
+// atividade (abaixo) mostrar "falhou" em vez de "sem evidência" quando o veredito só existe
+// porque a avaliação deu erro (ver app/rfi/service.py::avaliar_item_rfi), não porque a pesquisa
+// genuinamente não achou nada.
+const MARCA_ERRO_AVALIACAO = "Não foi possível avaliar este item:";
+
+interface FeedEntry {
+  id: string;
+  hora: string;
+  codigo: string;
+  texto?: string;
+  badgeClasse?: string;
+  badgeTexto?: string;
+}
+
+function horaAtual(): string {
+  return new Date().toLocaleTimeString();
+}
+
+// Compara os itens recebidos no polling contra o snapshot anterior (guardado em `vistos`, um
+// Map mutado aqui mesmo) e devolve as entradas novas pro feed de atividade -- é assim que a tela
+// mostra "o que aconteceu" sem precisar de nenhum log novo no backend: cada poll já traz o estado
+// atual de todo item, só precisa notar o que mudou desde o poll anterior. Na primeira carga
+// (`primeiraCarga`) só preenche o snapshot, sem gerar entradas -- senão reabrir um RFI já pronto
+// faria o feed "replay" o resultado de todos os itens de uma vez.
+function diffParaFeed(
+  itens: RfiItemOut[],
+  vistos: Map<string, { veredito: VeredictoRfi | null; etapa: string | null }>,
+  primeiraCarga: boolean,
+  t: (key: string) => string,
+): FeedEntry[] {
+  const labels = veredictoLabels(t);
+  const entradas: FeedEntry[] = [];
+  for (const item of itens) {
+    const anterior = vistos.get(item.id);
+    if (!anterior) {
+      if (!primeiraCarga) {
+        entradas.push({
+          id: `${item.id}-${Date.now()}-novo`,
+          hora: horaAtual(),
+          codigo: item.codigo,
+          texto: t("rfiDetail.feedExtraido"),
+        });
+      }
+    } else if (anterior.veredito !== item.veredito && item.veredito) {
+      const comErro = (item.justificativa ?? "").startsWith(MARCA_ERRO_AVALIACAO);
+      entradas.push({
+        id: `${item.id}-${Date.now()}-veredito`,
+        hora: horaAtual(),
+        codigo: item.codigo,
+        badgeClasse: comErro ? "badge-vermelho" : VEREDITO_BADGE[item.veredito],
+        badgeTexto: comErro ? t("rfiDetail.feedErroBadge") : labels[item.veredito],
+      });
+    } else if (anterior.etapa !== item.etapa && item.etapa && !item.veredito) {
+      entradas.push({
+        id: `${item.id}-${Date.now()}-etapa-${item.etapa}`,
+        hora: horaAtual(),
+        codigo: item.codigo,
+        texto: t(`rfiItemRow.etapa.${item.etapa}`),
+      });
+    }
+    vistos.set(item.id, { veredito: item.veredito, etapa: item.etapa });
+  }
+  return entradas;
 }
 
 export function RfiDetail() {
@@ -38,7 +110,10 @@ export function RfiDetail() {
   const navigate = useNavigate();
   const [rfi, setRfi] = useState<RfiDetailData | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
   const pollRef = useRef<number | null>(null);
+  const vistosRef = useRef<Map<string, { veredito: VeredictoRfi | null; etapa: string | null }>>(new Map());
+  const primeiraCargaRef = useRef(true);
 
   function carregar() {
     if (!id) return;
@@ -46,6 +121,11 @@ export function RfiDetail() {
       .obterRfi(id)
       .then((data) => {
         setRfi(data);
+        const novasEntradas = diffParaFeed(data.itens, vistosRef.current, primeiraCargaRef.current, t);
+        primeiraCargaRef.current = false;
+        if (novasEntradas.length > 0) {
+          setFeed((prev) => [...novasEntradas.reverse(), ...prev].slice(0, 60));
+        }
         const aindaProcessando = data.status_extracao === "extraindo" || data.itens.some((i) => i.veredito === null);
         if (aindaProcessando) {
           pollRef.current = window.setTimeout(carregar, 3000);
@@ -55,6 +135,9 @@ export function RfiDetail() {
   }
 
   useEffect(() => {
+    vistosRef.current = new Map();
+    primeiraCargaRef.current = true;
+    setFeed([]);
     carregar();
     return () => {
       if (pollRef.current) window.clearTimeout(pollRef.current);
@@ -85,6 +168,13 @@ export function RfiDetail() {
 
   const extraindo = rfi.status_extracao === "extraindo";
   const pct = rfi.total_itens > 0 ? Math.round((rfi.itens_avaliados / rfi.total_itens) * 100) : 0;
+  // Item que o progresso diz estar sendo avaliado agora -- junta com o `etapa` dele (já
+  // atualizado pelo mesmo polling) pra mostrar o passo real na faixa de status, não só o índice
+  // "3/10" (ver _etapa em api/app/rfi/service.py).
+  const itemEmAndamento =
+    rfi.progresso && (rfi.progresso.fase === "avaliando" || rfi.progresso.fase === "reavaliando")
+      ? rfi.itens.find((i) => i.codigo === rfi.progresso?.nome)
+      : undefined;
 
   return (
     <div>
@@ -137,13 +227,39 @@ export function RfiDetail() {
                 ? t(`rfiDetail.fase.${rfi.progresso.fase}`)
                     .replace("{atual}", String(rfi.progresso.atual))
                     .replace("{total}", String(rfi.progresso.total))
-                    .replace("{nome}", rfi.progresso.nome)
+                    .replace("{nome}", rfi.progresso.nome) +
+                  (itemEmAndamento?.etapa ? ` — ${t(`rfiItemRow.etapa.${itemEmAndamento.etapa}`)}` : "")
                 : t("rfiDetail.iniciando")
           }
           cancelamentoSolicitado={rfi.cancelamento_solicitado}
           rotuloCancelar={t("rfiDetail.cancelar")}
           onCancelar={() => void api.cancelarRfi(rfi.id).then(carregar)}
         />
+      )}
+
+      {feed.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="muted" style={{ marginBottom: 8, fontSize: 13 }}>
+            {t("rfiDetail.feedTitulo")}
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+            {feed.map((entrada) => (
+              <div key={entrada.id} style={{ fontSize: 13, display: "flex", gap: 8, alignItems: "baseline" }}>
+                <span className="muted" style={{ fontFamily: "monospace", flexShrink: 0 }}>
+                  {entrada.hora}
+                </span>
+                <span className="item-codigo">{entrada.codigo}</span>
+                {entrada.badgeClasse ? (
+                  <span className={`badge ${entrada.badgeClasse}`} style={{ fontSize: 11 }}>
+                    {entrada.badgeTexto}
+                  </span>
+                ) : (
+                  <span className="muted">{entrada.texto}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {rfi.status_extracao === "pronto" && rfi.total_itens > 0 && (
@@ -323,12 +439,7 @@ function RfiItemRow({
     !item.procedimento_id &&
     !item.confirmado_por_historico;
 
-  const VEREDITO_LABEL: Record<VeredictoRfi, string> = {
-    atende: t("rfiItemRow.atende"),
-    atende_parcial: t("rfiItemRow.atendeParcial"),
-    nao_atende: t("rfiItemRow.naoAtende"),
-    sem_evidencia: t("rfiItemRow.semEvidencia"),
-  };
+  const VEREDITO_LABEL = veredictoLabels(t);
 
   async function reavaliar() {
     setReavaliando(true);
