@@ -1486,6 +1486,10 @@ function procNormalize(o, sanitize){
     products:(Array.isArray(o.products) ? o.products : []).filter(p=>prodIds.indexOf(p)>=0).filter((p,i,a)=>a.indexOf(p)===i),
     tags:tags, sourceClient:procClampStr(o.sourceClient,120), date:/^\d{4}-\d{2}-\d{2}$/.test(o.date||'') ? o.date : '',
     status:PROC_STATUS.indexOf(o.status)>=0 ? o.status : 'rascunho', version:v>0 ? v : 1, html:html,
+    // Idioma em que `html` está escrito (vazio = desconhecido, registros de antes desta coluna ou
+    // local sem backend). Só importa pra servidor (id 'srv-...'): é o que diz se procDisplayHtml
+    // precisa buscar uma tradução quando o idioma da tela (state.lang) for outro -- ver serverProcToLib.
+    langOriginal:/^(pt|en|es)$/.test(o.langOriginal) ? o.langOriginal : '',
     placeholders:phNormalize(o.placeholders), authored:isPlainObject(o.authored) ? draftNormalize(o.authored) : null
   };
 }
@@ -1625,7 +1629,7 @@ function renderLibraryList(list, g){
   + '</div>';
 }
 function renderProcedureDetail(p, g){
-  const L = state.lang, parsed = procSections(p.html), id = p.id;
+  const L = state.lang, parsed = procSections(procDisplayHtml(p)), id = p.id;
   const inp = (label, key, value, type)=>'<div><label class="field-label">'+label+'</label><input type="'+(type||'text')+'" value="'+esc(value)+'" oninput="P.libSet(\''+id+'\',\''+key+'\', this.value)"></div>';
   return '<div class="card">'
     + '<div class="flex justify-between items-center"><h2 class="section-title">' + Icon('book') + ' ' + esc(p.title) + ' <span class="pill">v'+p.version+'</span></h2>'
@@ -2006,7 +2010,7 @@ function dayItemHtml(k, p, x, g, seen, lib){
   else {
     h += '<p class="day-proc">' + g('Procedimento: ','Procedure: ','Procedimiento: ') + '<strong>' + esc(proc.title) + '</strong> v' + proc.version + '</p>';
     if(seen[proc.id]) h += '<p class="day-exp">' + g('Os passos já estão impressos no item ','The steps are already printed under item ','Los pasos ya están impresos en el ítem ') + seen[proc.id] + '.</p>';
-    else { seen[proc.id] = k; h += procSections(proc.html).sections.map(s=>'<div class="passo"><h5>' + esc(s.title) + '</h5><div class="proc-body">' + procSubstituteHtml(s.html, proc.placeholders, t) + '</div></div>').join(''); }
+    else { seen[proc.id] = k; h += procSections(procDisplayHtml(proc)).sections.map(s=>'<div class="passo"><h5>' + esc(s.title) + '</h5><div class="proc-body">' + procSubstituteHtml(s.html, proc.placeholders, t) + '</div></div>').join(''); }
   }
   return h + '<p class="day-fill">' + g('Resultado:','Result:','Resultado:') + ' ☐ ' + g('Atende','Meets','Cumple') + ' &nbsp; ☐ ' + g('Parcial','Partial','Parcial') + ' &nbsp; ☐ ' + g('Não atende','Does not meet','No cumple') + ' &nbsp;&nbsp; ' + g('Evidência:','Evidence:','Evidencia:') + ' ____________________</p></div>';
 }
@@ -3927,7 +3931,42 @@ function serverProcSlug(title){ return userSlug(title).slice(0,30) || 'proc'; }
 function serverProcToLib(row, detail){
   if(!isPlainObject(detail) || typeof detail.html_original!=='string' || !detail.html_original || detail.html_original.length>PROC_MAX_BYTES) return null;
   return { id:serverProcId(row.sid), family:'srvf-'+serverProcSlug(row.title), title:row.title, products:guessProducts(row.title+' '+row.tags.join(' ')),
-    tags:row.tags, sourceClient:row.client, date:row.date, status:row.status, version:row.version, html:detail.html_original };
+    tags:row.tags, sourceClient:row.client, date:row.date, status:row.status, version:row.version, html:detail.html_original,
+    langOriginal:typeof detail.idioma_original==='string' ? detail.idioma_original : '' };
+}
+/* ---- tradução de exibição de procedimento do servidor, sob demanda ----
+   `html` na biblioteca local é sempre o `html_original` (idioma em que o procedimento foi escrito,
+   ver langOriginal acima) -- nunca o traduzido pro idioma da tela. O backend já faz tradução sob
+   demanda com cache permanente por procedimento (GET /api/procedimentos/<uuid>?lang=, ver
+   app/procedimentos/router.py::_html_no_idioma e CLAUDE.md "Tradução de exibição"); aqui só um
+   cache local (localStorage, por navegador) pra não rebuscar a cada render. Nunca trava a página:
+   enquanto a tradução não chega, procDisplayHtml devolve o original (igual ao backend, que também
+   cai pro original se a tradução falhar). Só pra procedimentos do servidor (id 'srv-...'): um
+   procedimento local não tem UUID nem backend pra traduzir. */
+const PROC_TR_KEY = 'suse_poc_planner_proc_tr_v1';
+function loadProcTr(){ try{ const o = JSON.parse(localStorage.getItem(PROC_TR_KEY)||'{}'); return isPlainObject(o) ? o : {}; }catch(e){ return {}; } }
+function saveProcTr(map){ try{ localStorage.setItem(PROC_TR_KEY, JSON.stringify(map)); }catch(e){} }
+let procTrBusy = {};
+function procTrFetch(sid, lang){
+  const key = sid+'|'+lang;
+  if(procTrBusy[key] || !connectorHas('procedures')) return;
+  procTrBusy[key] = true;
+  return connectorIO(SERVER_PROC_BASE+'/'+sid+'?lang='+encodeURIComponent(lang), { credentials:'same-origin', headers:{ Accept:'application/json' } }).then(connectorJson)
+    .then(d=>{
+      if(!isPlainObject(d) || typeof d.html!=='string' || d.html.length>PROC_MAX_BYTES) return;
+      const map = loadProcTr(); map[sid] = map[sid] || {}; map[sid][lang] = d.html; saveProcTr(map);
+    })
+    .catch(()=>{})   // melhor esforço: uma falha aqui só mantém o original (sem esta tradução), nunca quebra a tela
+    .then(()=>{ delete procTrBusy[key]; render(); });
+}
+function procDisplayHtml(p){
+  if(p.id.indexOf('srv-')!==0 || !connectorHas('procedures')) return p.html;
+  const L = state.lang;
+  if(p.langOriginal===L) return p.html;
+  const sid = p.id.slice(4), cached = (loadProcTr()[sid]||{})[L];
+  if(cached) return cached;
+  procTrFetch(sid, L);
+  return p.html;
 }
 function serverProcsLoad(){
   if(!connectorHas('procedures') || serverProcs.phase==='loading') return;

@@ -148,6 +148,11 @@ class ProcedureDraftOut(BaseModel):
     versao: int
     data_origem: date | None
     html_original: str
+    # Idioma detectado do html_original (sempre "pt" na prática -- a geração é forçada em
+    # português, ver _RASCUNHO_PROMPT em app/gemini.py). O planejador usa isso (serverProcToLib,
+    # campo langOriginal) pra saber quando precisa buscar uma tradução ao mudar o idioma da tela
+    # em vez de assumir que html_original já está no idioma certo.
+    idioma_original: str | None
 
 
 @router.post("/procedure-draft", response_model=ProcedureDraftOut)
@@ -188,4 +193,5 @@ def procedure_draft(
         versao=procedimento.versao,
         data_origem=procedimento.data_origem,
         html_original=procedimento.html_original,
+        idioma_original=procedimento.idioma_original,
     )

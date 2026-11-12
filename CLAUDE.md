@@ -123,6 +123,19 @@ pra importar um procedimento do servidor (`serverProcClean`/`serverProcToLib`), 
 Continua `rascunho` (invisível pra `_buscar_candidatos`) até alguém confirmar a execução e validar
 pela tela de Procedimentos do lado de cá -- a IA nunca se autoconfirma, mesma regra do lado PoC.
 
+**Exibição no idioma da tela, não no idioma em que foi escrito:** o planejador guarda na biblioteca
+local só `html_original` (o que o servidor manda, nunca pré-traduzido) e um `langOriginal` novo
+(idioma desse HTML -- pro rascunho acima, sempre `pt`, já que a geração é forçada em português).
+Decisão: reaproveitar a tradução sob demanda que `GET /api/procedimentos/{id}?lang=` já faz (ver
+"Tradução de exibição" em Procedimentos, com cache permanente por procedimento em
+`Procedimento.traducoes`) em vez de gerar as três línguas de uma vez na criação -- mais barato (a
+maioria dos procedimentos nunca é aberta nos três idiomas) e sem duplicar o mecanismo de tradução já
+existente. `procDisplayHtml` (`poc-planner/index.html`) busca a tradução só quando `state.lang` diverge
+de `langOriginal`, guarda o resultado num cache local (`localStorage`, chave
+`suse_poc_planner_proc_tr_v1`) e mostra o original enquanto isso -- nunca trava a tela, mesmo
+princípio do backend se a tradução falhar. Só vale pra procedimento do servidor (`id` começando com
+`srv-`); um procedimento só local (sem UUID de backend) não tem como ser traduzido por aqui.
+
 ## Procedimentos (base de conhecimento)
 
 - Formato de entrada: **HTML** (upload). Converter para texto/markdown para indexar e guardar o HTML original para exibição.

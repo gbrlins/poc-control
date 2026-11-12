@@ -146,7 +146,7 @@ def test_procedure_draft_contrato(monkeypatch):
             id=uuid.uuid4(), titulo="Criar VM no Harvester (rascunho)", tags=["virtualization"],
             cliente_origem=cliente or None, status=StatusProcedimento.rascunho,
             origem_conhecimento=OrigemConhecimento.planejador, gerado_por_ia=True, versao=1,
-            html_original="<h2>Objetivo</h2><p>x</p>",
+            html_original="<h2>Objetivo</h2><p>x</p>", idioma_original="pt",
         )
 
     monkeypatch.setattr(planner_router, "gerar_rascunho_planner", falso)
@@ -159,6 +159,7 @@ def test_procedure_draft_contrato(monkeypatch):
     assert r.status_code == 200
     j = r.json()
     assert j["status"] == "rascunho" and j["tags"] == ["virtualization"] and j["html_original"].startswith("<h2>")
+    assert j["idioma_original"] == "pt"
     assert chamado == {
         "titulo": "Criar VM", "esperado": "VM criada", "produto": "virtualization",
         "cliente": "Acme", "escopo": "Substituição de VMware",
