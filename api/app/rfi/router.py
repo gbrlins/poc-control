@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app import exclusao as excl
 from app.db import get_db
 from app.deps import get_current_user
+from app.gemini import interpretar_erro_gemini
 from app.gemini_key import resolve_api_key, resolve_model
 from app.models import OrigemClassificacao, OrigemConhecimento, Rfi, RfiDocumento, RfiItem, StatusExtracao, StatusProcedimento, User, VeredictoRfi
 from app.procedimentos.router import _criar_procedimento, _escapar_html
@@ -274,7 +275,17 @@ def reavaliar_item(
     current_user: User = Depends(get_current_user),
 ):
     item = _get_item_or_404(db, rfi_id, item_id)
-    avaliar_item_rfi(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user))
+    tinha_veredito = item.veredito is not None
+    try:
+        avaliar_item_rfi(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user))
+    except Exception as exc:
+        if tinha_veredito:
+            # avaliar_item_rfi preserva o veredito que já existia (uma falha do Gemini não pode
+            # apagar uma resposta já confirmada) -- aqui devolve o erro de verdade pro usuário,
+            # já que silenciosamente não fazer nada deixaria o botão "Reavaliar" sem feedback.
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, interpretar_erro_gemini(exc))
+        # Item que nunca tinha sido avaliado: avaliar_item_rfi já persistiu um veredito "sem
+        # evidência" com o erro na justificativa -- devolve normalmente pra UI mostrar.
     db.refresh(item)
     return item
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, RfiDetail as RfiDetailData, RfiDocumentoOut, RfiItemOut, VeredictoRfi } from "@/api";
+import { api, ApiError, RfiDetail as RfiDetailData, RfiDocumentoOut, RfiItemOut, VeredictoRfi } from "@/api";
 import { rotuloCategoria } from "@/categorias";
 import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { DangerZone } from "@/components/DangerZone";
@@ -313,6 +313,7 @@ function RfiItemRow({
   const [salvando, setSalvando] = useState(false);
   const [reavaliando, setReavaliando] = useState(false);
   const [promovendo, setPromovendo] = useState(false);
+  const [erroReavaliar, setErroReavaliar] = useState<string | null>(null);
 
   // Mirrors the server-side check in promover_item_rfi (api/app/rfi/router.py) -- a history-
   // confirmed item's justificativa is always the fixed anonymous placeholder, and an item already
@@ -331,11 +332,18 @@ function RfiItemRow({
 
   async function reavaliar() {
     setReavaliando(true);
+    setErroReavaliar(null);
     try {
       const atualizado = await api.reavaliarItemRfi(rfiId, item.id);
       onAtualizado(atualizado);
       setVeredito(atualizado.veredito ?? "sem_evidencia");
       setJustificativa(atualizado.justificativa ?? "");
+    } catch (e) {
+      // Item que já tinha um veredito confirmado: o backend preserva esse veredito e devolve o
+      // erro real do Gemini (ver reavaliar_item em api/app/rfi/router.py) em vez de apagar uma
+      // resposta boa por uma falha transiente -- sem isto, o botão só parava de girar e o
+      // usuário não saberia que a tentativa falhou.
+      setErroReavaliar(e instanceof ApiError ? e.message : t("rfiItemRow.erroReavaliar"));
     } finally {
       setReavaliando(false);
     }
@@ -398,6 +406,7 @@ function RfiItemRow({
             </p>
           )}
           {item.justificativa && <p className="muted" style={{ marginTop: 0 }}>{item.justificativa}</p>}
+          {erroReavaliar && <p className="alert alert-error" style={{ marginTop: 0 }}>{erroReavaliar}</p>}
           {item.procedimento_id && (
             <p style={{ marginTop: 0 }}>
               <Link to={`/procedimentos/${item.procedimento_id}`} className="btn btn-secondary" style={{ display: "inline-flex" }}>

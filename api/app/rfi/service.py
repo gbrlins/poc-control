@@ -13,10 +13,15 @@ from app.gemini import (
     classificar_atendimento_rfi,
     confirmar_match,
     embed_query,
+    interpretar_erro_gemini,
     modelo_efetivo,
     pesquisar_atendimento_rfi,
 )
 from app.models import OrigemClassificacao, RfiItem, VeredictoRfi
+
+JUSTIFICATIVA_ERRO = (
+    'Não foi possível avaliar este item: {erro} Use "Reavaliar" depois de resolver o problema.'
+)
 
 
 def texto_item_rfi(item: RfiItem) -> str:
@@ -108,8 +113,29 @@ def _etapa(db: Session, item: RfiItem, etapa: str | None) -> None:
 
 
 def avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None = None, model: str | None = None) -> RfiItem:
+    # Antes de tentar: se a chamada ao Gemini falhar (sem credencial cadastrada, chave inválida,
+    # quota, etc.), um item que nunca tinha sido avaliado ficava com veredito=null pra sempre --
+    # o front (RfiDetail.tsx) usa exatamente esse campo pra decidir se ainda está "processando" e
+    # continuar o polling, então a tela mostrava "em processamento" indefinidamente, sem nenhum
+    # indício de que já tinha falhado (só um log no servidor, nunca visto pelo usuário). Guardado
+    # antes da tentativa porque o `except` abaixo precisa saber se havia algo bom a preservar.
+    veredito_antes = item.veredito
     try:
         return _avaliar_item_rfi(db, item, api_key, model)
+    except Exception as exc:
+        db.rollback()
+        if veredito_antes is None:
+            # Nunca tinha sido avaliado: marca "sem evidência" com o erro real do Gemini na
+            # justificativa, pra sair do limbo "processando" e o usuário saber que precisa
+            # resolver a credencial (ou outro problema) e usar "Reavaliar" -- em vez de ficar
+            # girando pra sempre. Quem já tinha um veredito confirmado (reavaliação que falhou)
+            # mantém o que já tinha: uma falha transiente não pode apagar uma resposta boa.
+            item.veredito = VeredictoRfi.sem_evidencia
+            item.justificativa = JUSTIFICATIVA_ERRO.format(erro=interpretar_erro_gemini(exc))
+            item.origem = None
+        item.etapa = None
+        db.commit()
+        raise
     finally:
         # Sai da avaliação (com sucesso ou não): nenhum passo "em curso" fica pendurado no item.
         try:
