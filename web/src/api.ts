@@ -18,7 +18,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(res.status, body?.detail ?? "Erro inesperado");
   }
 
-  return res.json() as Promise<T>;
+  // 204 (e qualquer outro sucesso sem corpo) não tem nada pra `res.json()` ler -- ele rejeita com
+  // SyntaxError num corpo vazio, o que fazia toda chamada request<void> (removerDocumentoRfi/Poc,
+  // removerTermoBusca) parecer ter falhado mesmo a API tendo apagado o registro: quem chamou nunca
+  // via o sucesso (onMudou() não rodava) e a lista ficava com a linha removida ainda visível. Dois
+  // call sites já contornavam isto não usando request() (api.excluir, removerItem) -- corrigindo
+  // aqui uma vez, nenhum outro T = void precisa do próprio bypass.
+  const texto = await res.text();
+  return (texto ? JSON.parse(texto) : undefined) as T;
 }
 
 export interface User {
@@ -283,6 +290,7 @@ export interface RfiItemOut {
   fontes: Fonte[];
   origem: OrigemClassificacao | null;
   procedimento_id: string | null;
+  procedimento_titulo: string | null;
   confirmado_por_historico: boolean;
   modelo: string | null;
   created_at: string;
@@ -486,6 +494,7 @@ export const api = {
   listarRfis: () => request<RfiListItem[]>("/api/rfis"),
   obterRfi: (id: string) => request<RfiDetail>(`/api/rfis/${id}`),
   criarRfi: (form: FormData) => request<RfiListItem>("/api/rfis", { method: "POST", body: form }),
+  reextrairRfi: (rfiId: string) => request<RfiListItem>(`/api/rfis/${rfiId}/reextrair`, { method: "POST" }),
   adicionarDocumentosRfi: (rfiId: string, form: FormData) =>
     request<RfiListItem>(`/api/rfis/${rfiId}/documentos`, { method: "POST", body: form }),
   removerDocumentoRfi: (rfiId: string, documentoId: string) =>
@@ -501,8 +510,6 @@ export const api = {
     }),
   reavaliarItemRfi: (rfiId: string, itemId: string) =>
     request<RfiItemOut>(`/api/rfis/${rfiId}/itens/${itemId}/reavaliar`, { method: "POST" }),
-  promoverItemRfi: (rfiId: string, itemId: string) =>
-    request<RfiItemOut>(`/api/rfis/${rfiId}/itens/${itemId}/promover`, { method: "POST" }),
   urlExportarRfi: (rfiId: string) => `/api/rfis/${rfiId}/export`,
   urlExportarRfiXlsx: (rfiId: string) => `/api/rfis/${rfiId}/export.xlsx`,
 

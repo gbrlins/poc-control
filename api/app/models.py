@@ -505,6 +505,12 @@ class RfiItem(Base):
     rfi: Mapped[Rfi] = relationship(back_populates="itens")
     procedimento: Mapped[Procedimento | None] = relationship()
 
+    @property
+    def procedimento_titulo(self) -> str | None:
+        """Pro front mostrar qual procedimento confirmou o item sem precisar navegar até ele
+        (ver RfiItemOut.procedimento_titulo) -- RfiItemOut só tinha procedimento_id até aqui."""
+        return self.procedimento.titulo if self.procedimento else None
+
 
 class Prerequisito(Base):
     __tablename__ = "poc_prerequisitos"

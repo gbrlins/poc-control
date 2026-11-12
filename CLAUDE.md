@@ -164,14 +164,28 @@ automática, feita antes/independente de qualquer execução.
   pesquisa na web se nenhum procedimento confirmar o atendimento — mesmo espírito de "procurar
   primeiro na base interna" do semáforo de PoC, e mais barato em tokens. Quando um procedimento
   interno confirma, grava `veredito=atende` e `RfiItem.procedimento_id` (exibido na UI como "Ver
-  procedimento interno", sem fontes web). Senão, cai para a busca web com grounding do Google
+  procedimento interno: `<título>`" — `RfiItem.procedimento_titulo`, uma `@property` no modelo que
+  lê `procedimento.titulo`, sem precisar de JOIN explícito nem endpoint novo — sem fontes web).
+  Senão, cai para a busca web com grounding do Google
   Search, classificando um veredito em **4 estados**: `atende` / `atende_parcial` / `nao_atende` /
   `sem_evidencia`. "Sem evidência" existe pra nunca afirmar atendimento (ou não-atendimento) sem
   achar prova — mesma filosofia do semáforo de PoC acima. Mesmo workaround de 2 chamadas Gemini
   (grounding sem `response_schema` → classificação com `response_schema` sem grounding) pela
   limitação documentada.
 - Veredito é sugestão: editável manualmente (`origem: auto|manual`), e cada item tem um botão
-  "Reavaliar" individual.
+  "Reavaliar" individual. Marcar um item como `atende` à mão também alimenta a base de histórico
+  compartilhada (`atualizar_embedding_historico_rfi`, mesma usada pela avaliação automática) --
+  conhecimento validado pelo usuário conta tanto quanto um confirmado pelo Gemini pra responder
+  RFIs/PoCs futuros equivalentes. Deliberadamente **não existe** um "promover a procedimento" do
+  lado RFI (diferente do lado PoC, que tem um de verdade a partir de um anexo com passo a passo
+  escrito): a resposta de um item de RFI é só texto + veredito, não um procedimento com passo a
+  passo de implementação, então catalogar isso em Procedimentos poluiria a base; o histórico
+  acima é o canal certo pra essa reutilização.
+- Se a extração falhar (`status_extracao=erro` -- inclusive após uma recuperação de reinício do
+  servidor, ver ADR 7 abaixo), `POST /api/rfis/{id}/reextrair` tenta de novo só os documentos que
+  ainda não geraram nenhum item (evita duplicar itens de um documento que já tinha dado certo
+  antes da interrupção). Botão dedicado na UI, só ícone com tooltip, ao lado da mensagem de erro
+  -- deliberadamente diferente do "Reavaliar tudo", que reavalia itens já existentes.
 - Export em HTML imprimível e XLSX (primeira escrita de planilha do projeto — `openpyxl` só lia
   planilhas de entrada antes).
 - Histórico (`/rfis`) com filtro por usuário e por data, resolvido 100% no front (lista inteira
@@ -381,10 +395,10 @@ reinicia no meio, a tarefa morre e a linha ficava `extraindo` para sempre (e o "
 **toda** linha ainda `extraindo` vira `erro` com a mensagem "interrompida por um reinício do servidor", registrada em log,
 e o botão de nova tentativa volta a funcionar. Pressupõe **um worker** do uvicorn (o compose sobe um): com mais de um, a
 varredura derrubaria tarefas vivas do outro, então desligue com `EXTRACAO_RECUPERAR_NO_INICIO=false`. Uma falha na
-varredura nunca impede a api de subir. Limites conhecidos: uma tarefa travada **sem** reinício (por exemplo uma chamada ao
-Gemini que não volta) continua `extraindo` até o próximo reinício (não há data de início da tarefa para decidir por idade);
-RFIs recuperadas ficam em `erro`, e a RFI ainda não tem "tentar de novo" (só reavaliar item). Testes:
-`tests/test_recuperacao_db.py` (Postgres, dentro do container da api).
+varredura nunca impede a api de subir. `POST /api/rfis/{id}/reextrair` (ver "RFI" acima) é o "tentar de novo" do lado
+RFI, equivalente ao `reextrair_poc` que a PoC já tinha. Limite conhecido: uma tarefa travada **sem** reinício (por
+exemplo uma chamada ao Gemini que não volta) continua `extraindo` até o próximo reinício (não há data de início da
+tarefa para decidir por idade). Testes: `tests/test_recuperacao_db.py` (Postgres, dentro do container da api).
 
 ## Propriedade e exclusão permanente (PoC, RFI e Procedimento)
 

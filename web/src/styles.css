@@ -717,6 +717,37 @@ h2 {
   color: var(--color-primary-contrast);
 }
 
+/* Botão só com símbolo (ex.: "tentar de novo" num alerta de erro) -- tooltip via title, sem
+   rótulo de texto, pra não competir com a mensagem de erro ao lado. Cor herda do contexto
+   (var(--color-danger) dentro de .alert-error) em vez de fixa, pra servir em qualquer alerta. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn-icon:hover:not(:disabled) {
+  /* Realce neutro semi-transparente em vez de inverter com currentColor -- currentColor no
+     hover resolveria pro valor FINAL de `color` desta mesma regra, não o herdado, então um
+     "color: branco" aqui deixaria o ícone branco sobre fundo branco. */
+  background: rgba(127, 127, 127, 0.18);
+}
+
+.btn-icon:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Forms */
 
 .form {

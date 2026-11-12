@@ -30,6 +30,7 @@ class RfiItemOut(BaseModel):
     fontes: list[FonteOut]
     origem: OrigemClassificacao | None
     procedimento_id: uuid.UUID | None = None
+    procedimento_titulo: str | None = None
     confirmado_por_historico: bool = False
     etapa: str | None = None
     modelo: str | None

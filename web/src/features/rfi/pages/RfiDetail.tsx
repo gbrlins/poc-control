@@ -111,6 +111,7 @@ export function RfiDetail() {
   const [rfi, setRfi] = useState<RfiDetailData | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [reextraindo, setReextraindo] = useState(false);
   const pollRef = useRef<number | null>(null);
   const vistosRef = useRef<Map<string, { veredito: VeredictoRfi | null; etapa: string | null }>>(new Map());
   const primeiraCargaRef = useRef(true);
@@ -149,6 +150,18 @@ export function RfiDetail() {
     setRfi((prev) =>
       prev ? { ...prev, itens: prev.itens.map((i) => (i.id === atualizado.id ? atualizado : i)) } : prev,
     );
+  }
+
+  async function tentarNovamente() {
+    setReextraindo(true);
+    try {
+      await api.reextrairRfi(rfi!.id);
+      carregar();
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : t("rfiDetail.erroReextrair"));
+    } finally {
+      setReextraindo(false);
+    }
   }
 
   const elapsedSeconds = useElapsedSeconds(
@@ -209,7 +222,21 @@ export function RfiDetail() {
         </div>
       </div>
 
-      {rfi.status_extracao === "erro" && <p className="alert alert-error">{rfi.erro_extracao}</p>}
+      {rfi.status_extracao === "erro" && (
+        <p className="alert alert-error" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ flex: 1 }}>{rfi.erro_extracao}</span>
+          <button
+            type="button"
+            className="btn-icon"
+            title={t("rfiDetail.tentarNovamente")}
+            aria-label={t("rfiDetail.tentarNovamente")}
+            disabled={reextraindo}
+            onClick={() => void tentarNovamente()}
+          >
+            {reextraindo ? "…" : "↻"}
+          </button>
+        </p>
+      )}
       {rfi.status_extracao === "pronto" && rfi.erro_extracao && (
         <p className="alert alert-warning" style={{ whiteSpace: "pre-line" }}>
           {t("rfiDetail.avisoExtracao")}
@@ -428,16 +455,7 @@ function RfiItemRow({
   const [justificativa, setJustificativa] = useState(item.justificativa ?? "");
   const [salvando, setSalvando] = useState(false);
   const [reavaliando, setReavaliando] = useState(false);
-  const [promovendo, setPromovendo] = useState(false);
   const [erroReavaliar, setErroReavaliar] = useState<string | null>(null);
-
-  // Mirrors the server-side check in promover_item_rfi (api/app/rfi/router.py) -- a history-
-  // confirmed item's justificativa is always the fixed anonymous placeholder, and an item already
-  // linked to a procedure (internal match, or already promoted) has nothing new to add.
-  const podePromover =
-    (item.veredito === "atende" || item.veredito === "atende_parcial") &&
-    !item.procedimento_id &&
-    !item.confirmado_por_historico;
 
   const VEREDITO_LABEL = veredictoLabels(t);
 
@@ -474,16 +492,6 @@ function RfiItemRow({
     }
   }
 
-  async function promover() {
-    setPromovendo(true);
-    try {
-      const atualizado = await api.promoverItemRfi(rfiId, item.id);
-      onAtualizado(atualizado);
-    } finally {
-      setPromovendo(false);
-    }
-  }
-
   return (
     <div className="item-row">
       <div
@@ -500,7 +508,12 @@ function RfiItemRow({
           )}
         </span>
         {item.procedimento_id && (
-          <span className="badge badge-procedimento">{t("rfiItemRow.procedimentoInterno")}</span>
+          <span className="badge badge-procedimento" title={item.procedimento_titulo ?? undefined}>
+            {t("rfiItemRow.procedimentoInterno")}
+          </span>
+        )}
+        {!item.procedimento_id && item.confirmado_por_historico && (
+          <span className="badge badge-muted">{t("rfiItemRow.confirmadoHistoricoBadge")}</span>
         )}
         {item.veredito ? (
           <span className={`badge ${VEREDITO_BADGE[item.veredito]}`}>{VEREDITO_LABEL[item.veredito]}</span>
@@ -522,6 +535,7 @@ function RfiItemRow({
             <p style={{ marginTop: 0 }}>
               <Link to={`/procedimentos/${item.procedimento_id}`} className="btn btn-secondary" style={{ display: "inline-flex" }}>
                 {t("rfiItemRow.verProcedimentoInterno")}
+                {item.procedimento_titulo ? `: ${item.procedimento_titulo}` : ""}
               </Link>
             </p>
           )}
@@ -533,9 +547,9 @@ function RfiItemRow({
           {item.fontes.length > 0 && (
             <>
               {item.procedimento_id && <p className="muted">{t("rfiItemRow.fontesComplementares")}</p>}
-              <ul style={{ paddingLeft: 18 }}>
+              <ul style={{ paddingLeft: 18, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
                 {item.fontes.map((f, i) => (
-                  <li key={i}>
+                  <li key={i} style={{ display: "list-item" }}>
                     <a href={f.url} target="_blank" rel="noreferrer">
                       {f.titulo}
                     </a>
@@ -552,11 +566,6 @@ function RfiItemRow({
             <button className="btn btn-secondary" onClick={() => setEditando((v) => !v)} type="button">
               {editando ? t("common.cancelar") : t("rfiItemRow.sobrescrever")}
             </button>
-            {podePromover && (
-              <button className="btn btn-secondary" onClick={promover} disabled={promovendo} type="button">
-                {promovendo ? t("rfiItemRow.promovendo") : t("rfiItemRow.promover")}
-              </button>
-            )}
           </div>
 
           {editando && (

@@ -7,12 +7,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import exclusao as excl
+from app.classificacao.service import atualizar_embedding_historico_rfi
 from app.db import get_db
 from app.deps import get_current_user
 from app.gemini import interpretar_erro_gemini
 from app.gemini_key import resolve_api_key, resolve_model
-from app.models import OrigemClassificacao, OrigemConhecimento, Rfi, RfiDocumento, RfiItem, StatusExtracao, StatusProcedimento, User, VeredictoRfi
-from app.procedimentos.router import _criar_procedimento, _escapar_html
+from app.models import OrigemClassificacao, Rfi, RfiDocumento, RfiItem, StatusExtracao, User
 from app.rfi.documentos import TEXTO_COLADO_NOME, ler_conteudo, remover_arquivo, salvar_documento
 from app.rfi.export import montar_rfi_export_html, montar_rfi_export_xlsx
 from app.rfi.schemas import ContagemVeredito, RfiDetail, RfiDocumentoOut, RfiItemManualUpdate, RfiItemOut, RfiListItem
@@ -197,6 +197,40 @@ def adicionar_documentos(
     return _list_item(db, rfi)
 
 
+@router.post("/{rfi_id}/reextrair", status_code=status.HTTP_202_ACCEPTED)
+def reextrair_rfi(
+    rfi_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Tenta de novo a extração de um RFI cujo status_extracao ficou 'erro' (ex.: todos os
+    documentos falharam no Gemini, ou a recuperação de reinício marcou como erro -- ADR 7,
+    app/recuperacao.py) -- mesmo espírito do reextrair_poc de app/pocs/router.py, mas só reprocessa
+    documentos que ainda não geraram nenhum item: uma recuperação de reinício pode ter marcado
+    `erro` com o 1º documento já bem-sucedido e o 2º interrompido no meio -- refazer o 1º
+    duplicaria os itens dele."""
+    rfi = _get_rfi_or_404(db, rfi_id)
+    if rfi.status_extracao != StatusExtracao.erro:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Só é possível reprocessar um RFI cuja extração falhou")
+    if not rfi.documentos:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este RFI não tem documento original para reprocessar")
+
+    pendentes = [d for d in rfi.documentos if not any(i.documento_id == d.id for i in rfi.itens)]
+    if not pendentes:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            'Todos os documentos deste RFI já têm itens extraídos -- use "Reavaliar" nos itens pendentes',
+        )
+
+    iniciar_processamento(rfi)
+    db.commit()
+    background_tasks.add_task(
+        processar_rfi, rfi.id, [d.id for d in pendentes], resolve_api_key(current_user), resolve_model(current_user)
+    )
+    return _list_item(db, rfi)
+
+
 @router.delete("/{rfi_id}/documentos/{documento_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remover_documento(rfi_id: uuid.UUID, documento_id: uuid.UUID, db: Session = Depends(get_db)):
     """Remove o documento, o arquivo e TODOS os itens extraídos dele (inclusive os com veredito
@@ -254,7 +288,11 @@ def reavaliar_todos(
 
 @router.patch("/{rfi_id}/itens/{item_id}", response_model=RfiItemOut)
 def sobrescrever_veredito(
-    rfi_id: uuid.UUID, item_id: uuid.UUID, payload: RfiItemManualUpdate, db: Session = Depends(get_db)
+    rfi_id: uuid.UUID,
+    item_id: uuid.UUID,
+    payload: RfiItemManualUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     item = _get_item_or_404(db, rfi_id, item_id)
     item.veredito = payload.veredito
@@ -262,6 +300,12 @@ def sobrescrever_veredito(
     item.origem = OrigemClassificacao.manual
     item.confirmado_por_historico = False
     item.modelo = None
+    # Um "atende" marcado à mão vale tanto quanto um confirmado pelo Gemini pra alimentar a base
+    # de histórico compartilhada (ver atualizar_embedding_historico_rfi, app/classificacao/
+    # service.py) -- sem isto, só itens que passaram pela avaliação automática viravam evidência
+    # buscável, e o conhecimento que o próprio usuário valida à mão (ex.: "isto aqui atende, eu
+    # sei por experiência") nunca entrava pro ciclo de confirmar RFIs/PoCs futuros equivalentes.
+    atualizar_embedding_historico_rfi(db, item, resolve_api_key(current_user))
     db.commit()
     db.refresh(item)
     return item
@@ -286,69 +330,6 @@ def reavaliar_item(
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, interpretar_erro_gemini(exc))
         # Item que nunca tinha sido avaliado: avaliar_item_rfi já persistiu um veredito "sem
         # evidência" com o erro na justificativa -- devolve normalmente pra UI mostrar.
-    db.refresh(item)
-    return item
-
-
-def _html_da_resposta_rfi(rfi: Rfi, item: RfiItem) -> str:
-    """Mesmo formato de wrapping de texto-plano-em-HTML do `validar_anexo` de PoC
-    (app/pocs/router.py) -- aqui sintetizado direto da resposta do item (não há anexo pro RFI),
-    já que extrair_secoes não exige h2/h3: um parágrafo + uma lista de fontes, sem nenhum
-    cabeçalho, ainda produz um chunk "Visão geral" (confirmado lendo html_processing.py)."""
-    partes = [f"<h2>{_escapar_html(item.codigo)}</h2>", f"<p>{_escapar_html(item.descricao)}</p>"]
-    if item.justificativa:
-        partes.append(f"<p>{_escapar_html(item.justificativa)}</p>")
-    if item.fontes:
-        links = "".join(
-            f'<li><a href="{_escapar_html(f["url"])}">{_escapar_html(f["titulo"])}</a></li>' for f in item.fontes
-        )
-        partes.append(f"<ul>{links}</ul>")
-    return "\n".join(partes)
-
-
-@router.post("/{rfi_id}/itens/{item_id}/promover", response_model=RfiItemOut)
-def promover_item_rfi(
-    rfi_id: uuid.UUID,
-    item_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Leva uma resposta de RFI confirmada para a base de conhecimento (Procedimentos), tagueada
-    `origem_conhecimento=rfi` -- o equivalente, do lado RFI, do checkbox "Validado" que PoC já tem
-    (app/pocs/router.py::validar_anexo). Reaproveita `item.procedimento_id` pra guardar o vínculo
-    com o procedimento recém-criado: é o mesmo campo que já significa "existe um procedimento
-    interno que confirma isto", então o link "Ver procedimento interno" do front funciona sem
-    nenhuma mudança, e o próprio campo preenchido vira a trava natural contra promover duas vezes.
-    """
-    rfi = _get_rfi_or_404(db, rfi_id)
-    item = _get_item_or_404(db, rfi_id, item_id)
-
-    if item.veredito not in (VeredictoRfi.atende, VeredictoRfi.atende_parcial):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Só itens com veredito 'atende' ou 'atende parcial' podem virar conhecimento")
-    if item.procedimento_id is not None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este item já está vinculado a um procedimento")
-    if item.confirmado_por_historico:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Itens confirmados por histórico não têm uma justificativa própria para catalogar",
-        )
-
-    procedimento = _criar_procedimento(
-        db,
-        titulo=f"{item.codigo} — {item.descricao}"[:255],
-        tags=[item.categoria] if item.categoria else [],
-        categorias=[item.categoria_codigo] if item.categoria_codigo else [],
-        cliente_origem=rfi.orgao or None,
-        data_origem=None,
-        status_valor=StatusProcedimento.validado,
-        versao=1,
-        html=_html_da_resposta_rfi(rfi, item),
-        api_key=resolve_api_key(current_user),
-        dono_id=current_user.id,
-        origem=OrigemConhecimento.rfi,
-    )
-    item.procedimento_id = procedimento.id
-    db.commit()
     db.refresh(item)
     return item
 
