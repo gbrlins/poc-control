@@ -55,6 +55,15 @@ class Procedimento(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     titulo: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Título traduzido pro inglês, preenchido na MESMA chamada que já traduz html_original pro
+    # inglês no upload (_criar_procedimento/traduzir_procedimento_html) -- sem chamada extra ao
+    # Gemini. Ao contrário de html_original (que tem tradução sob demanda nos 3 idiomas, com cache
+    # em `traducoes`), o título só ganha este fallback único em inglês: é cosmético (o match por
+    # similaridade e tudo o mais continuam olhando pra `titulo`), então não justifica o mesmo
+    # mecanismo de cache por idioma. Nulo se a tradução eager falhar (fica sempre `titulo` mesmo,
+    # nunca quebra); usado hoje só pelo planejador (poc-planner/index.html::dispTitle), que mostra
+    # procedimentos do servidor fora do português -- o resto do app é pt-BR only. Migração 0030.
+    titulo_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     cliente_origem: Mapped[str | None] = mapped_column(String(255), nullable=True)
     data_origem: Mapped[date | None] = mapped_column(Date, nullable=True)

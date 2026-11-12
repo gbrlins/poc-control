@@ -143,8 +143,8 @@ def test_procedure_draft_contrato(monkeypatch):
     def falso(db, titulo, esperado, produto, cliente, escopo, dono_id, api_key, model):
         chamado.update(titulo=titulo, esperado=esperado, produto=produto, cliente=cliente, escopo=escopo)
         return Procedimento(
-            id=uuid.uuid4(), titulo="Criar VM no Harvester (rascunho)", tags=["virtualization"],
-            cliente_origem=cliente or None, status=StatusProcedimento.rascunho,
+            id=uuid.uuid4(), titulo="Criar VM no Harvester (rascunho)", titulo_en="Create VM on Harvester (draft)",
+            tags=["virtualization"], cliente_origem=cliente or None, status=StatusProcedimento.rascunho,
             origem_conhecimento=OrigemConhecimento.planejador, gerado_por_ia=True, versao=1,
             html_original="<h2>Objetivo</h2><p>x</p>", idioma_original="pt",
         )
@@ -159,7 +159,7 @@ def test_procedure_draft_contrato(monkeypatch):
     assert r.status_code == 200
     j = r.json()
     assert j["status"] == "rascunho" and j["tags"] == ["virtualization"] and j["html_original"].startswith("<h2>")
-    assert j["idioma_original"] == "pt"
+    assert j["idioma_original"] == "pt" and j["titulo_en"] == "Create VM on Harvester (draft)"
     assert chamado == {
         "titulo": "Criar VM", "esperado": "VM criada", "produto": "virtualization",
         "cliente": "Acme", "escopo": "Substituição de VMware",

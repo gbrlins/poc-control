@@ -18,6 +18,7 @@ class ProcedimentoListItem(BaseModel):
 
     id: uuid.UUID
     titulo: str
+    titulo_en: str | None = None
     tags: list[str]
     categorias: list[str]
     cliente_origem: str | None

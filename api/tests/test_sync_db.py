@@ -62,8 +62,8 @@ def gemini_falso(monkeypatch):
     monkeypatch.setattr(
         procedimentos_router,
         "traduzir_procedimento_html",
-        lambda html, idioma_alvo, api_key=None, model=None: TraducaoProcedimento(
-            idioma_detectado="pt", html_traduzido=html
+        lambda html, idioma_alvo, titulo, api_key=None, model=None: TraducaoProcedimento(
+            idioma_detectado="pt", titulo_traduzido=titulo, html_traduzido=html
         ),
     )
 

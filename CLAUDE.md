@@ -136,6 +136,19 @@ de `langOriginal`, guarda o resultado num cache local (`localStorage`, chave
 princípio do backend se a tradução falhar. Só vale pra procedimento do servidor (`id` começando com
 `srv-`); um procedimento só local (sem UUID de backend) não tem como ser traduzido por aqui.
 
+**Título, só um fallback fixo em inglês, nunca sob demanda (2026-11-12):** diferente do corpo, o
+`titulo` de um procedimento nunca passou pelo mecanismo de tradução -- é só uma coluna de texto,
+usada como está em todo o resto do app (match por similaridade, listagens do Executar PoC/RFI, que
+são pt-BR only e por isso nunca sentiram essa lacuna). Em vez de dar ao título o mesmo tratamento
+sob-demanda-com-cache-por-idioma do corpo (3 idiomas, round-trip, cache local), a saída escolhida foi
+mais barata: `Procedimento.titulo_en` é preenchido na MESMA chamada que já traduz `html_original` pro
+inglês no upload (`traduzir_procedimento_html` ganhou `titulo_traduzido` na resposta, sem chamada
+extra ao Gemini) -- um fallback único, não um valor por idioma. O planejador (`dispTitle` em
+`poc-planner/index.html`) mostra `titulo_en` sempre que a tela não estiver em português (inglês
+**e** espanhol caem no mesmo fallback em inglês -- não existe título em espanhol, por decisão
+deliberada: cosmético não justifica tradução pros 3 idiomas), e cai pro título original se a
+tradução eager ainda não rodou ou falhou. Migração `0030`.
+
 ## Procedimentos (base de conhecimento)
 
 - Formato de entrada: **HTML** (upload). Converter para texto/markdown para indexar e guardar o HTML original para exibição.

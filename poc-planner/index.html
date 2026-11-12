@@ -1490,6 +1490,8 @@ function procNormalize(o, sanitize){
     // local sem backend). Só importa pra servidor (id 'srv-...'): é o que diz se procDisplayHtml
     // precisa buscar uma tradução quando o idioma da tela (state.lang) for outro -- ver serverProcToLib.
     langOriginal:/^(pt|en|es)$/.test(o.langOriginal) ? o.langOriginal : '',
+    // Fallback de título em inglês (ver dispTitle acima) -- vazio se nunca foi traduzido.
+    titleEn:typeof o.titleEn==='string' ? procClampStr(o.titleEn,200).trim() : '',
     placeholders:phNormalize(o.placeholders), authored:isPlainObject(o.authored) ? draftNormalize(o.authored) : null
   };
 }
@@ -1594,8 +1596,8 @@ function renderLibraryList(list, g){
   const L = state.lang, bytes = (localStorage.getItem(LIBRARY_KEY)||'').length;
   const have = new Set(list.map(p=>p.id));
   const sp = serverProcs, serverOnly = connectorHas('procedures') ? sp.rows.filter(r=>!have.has(serverProcId(r.sid))) : [];
-  const localRows = list.map(p=>({ server:p.id.indexOf('srv-')===0, id:p.id, title:p.title, version:p.version, status:p.status, sourceClient:p.sourceClient, date:p.date, tags:p.tags, products:p.products, nSec:procSections(p.html).sections.length }));
-  const remoteRows = serverOnly.map(r=>({ server:true, sid:r.sid, title:r.title, version:r.version, status:r.status, sourceClient:r.client, date:r.date, tags:r.tags, products:[], nSec:null }));
+  const localRows = list.map(p=>({ server:p.id.indexOf('srv-')===0, id:p.id, title:p.title, titleEn:p.titleEn, version:p.version, status:p.status, sourceClient:p.sourceClient, date:p.date, tags:p.tags, products:p.products, nSec:procSections(p.html).sections.length }));
+  const remoteRows = serverOnly.map(r=>({ server:true, sid:r.sid, title:r.title, titleEn:r.titleEn, version:r.version, status:r.status, sourceClient:r.client, date:r.date, tags:r.tags, products:[], nSec:null }));
   const combined = localRows.concat(remoteRows).sort((a,b)=>a.title.localeCompare(b.title) || b.version-a.version);
   const rows = combined.map(p=>{
     const openBtn = p.id
@@ -1603,7 +1605,7 @@ function renderLibraryList(list, g){
       : '<button class="btn btn-outline btn-sm" '+(sp.openingSid===p.sid?'disabled ':'')+'onclick="P.srvProcOpen(\''+p.sid+'\')">' + Icon('download') + ' ' + (sp.openingSid===p.sid ? g('Importando…','Importing…','Importando…') : g('Importar e abrir','Import and open','Importar y abrir')) + '</button>';
     const delBtn = p.id ? '<button class="btn btn-ghost btn-sm" title="'+g('Excluir','Delete','Eliminar')+'" onclick="P.libDelete(\''+p.id+'\')">' + Icon('trash') + '</button>' : '';
     return '<div class="flex justify-between items-center" style="padding:10px 0;border-top:1px solid var(--gray-100);gap:12px;">'
-      + '<div style="min-width:0;"><div style="font-weight:800;font-size:13px;">' + esc(p.title) + ' ' + libraryOrigemTag(p.server,g) + ' <span class="pill '+(p.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[p.status][L]+'</span> <span class="pill">v'+p.version+'</span></div>'
+      + '<div style="min-width:0;"><div style="font-weight:800;font-size:13px;">' + esc(dispTitle(p.title,p.titleEn)) + ' ' + libraryOrigemTag(p.server,g) + ' <span class="pill '+(p.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[p.status][L]+'</span> <span class="pill">v'+p.version+'</span></div>'
       + '<div class="text-xs text-muted">' + [p.sourceClient, p.date, p.nSec!=null ? p.nSec+' '+g('seções','sections','secciones') : ''].filter(Boolean).map(esc).join(' · ')
       + (p.tags.length || p.products.length ? '<br>' + p.products.map(id=>esc((PRODUCTS.filter(x=>x.id===id)[0]||{}).name||id)).concat(p.tags.map(esc)).join(' · ') : '') + '</div></div>'
       + '<div class="flex gap-2">'+openBtn+delBtn+'</div></div>';
@@ -1632,7 +1634,7 @@ function renderProcedureDetail(p, g){
   const L = state.lang, parsed = procSections(procDisplayHtml(p)), id = p.id;
   const inp = (label, key, value, type)=>'<div><label class="field-label">'+label+'</label><input type="'+(type||'text')+'" value="'+esc(value)+'" oninput="P.libSet(\''+id+'\',\''+key+'\', this.value)"></div>';
   return '<div class="card">'
-    + '<div class="flex justify-between items-center"><h2 class="section-title">' + Icon('book') + ' ' + esc(p.title) + ' <span class="pill">v'+p.version+'</span></h2>'
+    + '<div class="flex justify-between items-center"><h2 class="section-title">' + Icon('book') + ' ' + esc(dispTitle(p.title,p.titleEn)) + ' <span class="pill">v'+p.version+'</span></h2>'
     + '<button class="btn btn-ghost btn-sm" onclick="P.libClose()">' + Icon('chevronL') + ' ' + (libraryReturnTo ? g('Voltar ao plano de testes','Back to the test plan','Volver al plan de pruebas') : g('Biblioteca','Library','Biblioteca')) + '</button></div>'
     + libraryNoticeHtml()
     + '<div class="grid grid-3 mt-3">'
@@ -1939,7 +1941,7 @@ function procPickerHtml(p, x, g){
   const rows = cands.map(c=>{
     const q = c.proc, hint = [].concat(c.why.product ? [g('produto','product','producto')] : [], c.why.tags.map(t=>'#'+t), c.why.words.slice(0,4)).map(esc).join(' · ');
     return '<div class="flex justify-between items-center" style="padding:6px 0;border-top:1px solid var(--gray-100);gap:10px;"><div style="min-width:0;">'
-      + '<div style="font-weight:800;font-size:12.5px;">' + esc(q.title) + ' <span class="pill">v'+q.version+'</span> <span class="pill '+(q.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[q.status][state.lang]+'</span></div>'
+      + '<div style="font-weight:800;font-size:12.5px;">' + esc(dispTitle(q.title,q.titleEn)) + ' <span class="pill">v'+q.version+'</span> <span class="pill '+(q.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[q.status][state.lang]+'</span></div>'
       + '<div class="text-xs text-muted">' + (hint ? g('Combina por: ','Matches on: ','Coincide por: ') + hint : '') + (ps.query ? (hint?' · ':'') + (q.tags.length?esc(q.tags.join(', ')):'') : '') + '</div></div>'
       + '<button class="btn btn-primary btn-sm" onclick="P.testLinkProc(\''+p.id+'\','+i+',\''+q.id+'\')">' + g('Vincular','Link','Vincular') + '</button></div>';
   }).join('');
@@ -1961,7 +1963,7 @@ function procLinkLine(p, x, g){
     const proc = lib.filter(q=>q.id===t.procId)[0];
     if(proc){
       const newest = lib.filter(q=>q.family===proc.family).reduce((a,b)=>b.version>a.version ? b : a, proc);
-      main = '<span class="text-xs" style="font-weight:800;">' + Icon('book') + ' ' + esc(proc.title) + '</span> <span class="pill">v'+proc.version+'</span> <span class="pill '+(proc.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[proc.status][L]+'</span>'
+      main = '<span class="text-xs" style="font-weight:800;">' + Icon('book') + ' ' + esc(dispTitle(proc.title,proc.titleEn)) + '</span> <span class="pill">v'+proc.version+'</span> <span class="pill '+(proc.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[proc.status][L]+'</span>'
         + (newest.id!==proc.id ? ' <span class="pill pill-warn">v'+newest.version+' '+g('disponível','available','disponible')+'</span> ' + btn('btn-ghost', 'P.testLinkProc(\''+p.id+'\','+i+',\''+newest.id+'\')', g('Atualizar','Update','Actualizar')) : '')
         + ' ' + btn('btn-ghost', 'P.testOpenProc(\''+proc.id+'\')', g('Abrir','Open','Abrir'));
     } else {
@@ -2008,7 +2010,7 @@ function dayItemHtml(k, p, x, g, seen, lib){
   if(!t.procId) h += '<p class="day-warn">' + g('Sem procedimento vinculado.','No linked procedure.','Sin procedimiento vinculado.') + '</p>';
   else if(!proc) h += '<p class="day-warn">' + g('O procedimento vinculado não está na biblioteca deste navegador.','The linked procedure is not in this browser’s library.','El procedimiento vinculado no está en la biblioteca de este navegador.') + '</p>';
   else {
-    h += '<p class="day-proc">' + g('Procedimento: ','Procedure: ','Procedimiento: ') + '<strong>' + esc(proc.title) + '</strong> v' + proc.version + '</p>';
+    h += '<p class="day-proc">' + g('Procedimento: ','Procedure: ','Procedimiento: ') + '<strong>' + esc(dispTitle(proc.title,proc.titleEn)) + '</strong> v' + proc.version + '</p>';
     if(seen[proc.id]) h += '<p class="day-exp">' + g('Os passos já estão impressos no item ','The steps are already printed under item ','Los pasos ya están impresos en el ítem ') + seen[proc.id] + '.</p>';
     else { seen[proc.id] = k; h += procSections(procDisplayHtml(proc)).sections.map(s=>'<div class="passo"><h5>' + esc(s.title) + '</h5><div class="proc-body">' + procSubstituteHtml(s.html, proc.placeholders, t) + '</div></div>').join(''); }
   }
@@ -3920,19 +3922,27 @@ function serverProcClean(arr){
   if(!Array.isArray(arr)) return null;
   return arr.slice(0,500).map(r=>{
     if(!isPlainObject(r) || typeof r.id!=='string' || !isUuid(r.id) || typeof r.titulo!=='string') return null;
-    return { sid:r.id.toLowerCase(), title:procClampStr(r.titulo,200).trim() || 'Sem título', version:Math.max(1, parseInt(r.versao,10)||1),
+    return { sid:r.id.toLowerCase(), title:procClampStr(r.titulo,200).trim() || 'Sem título',
+      titleEn:typeof r.titulo_en==='string' ? procClampStr(r.titulo_en,200).trim() : '', version:Math.max(1, parseInt(r.versao,10)||1),
       status:PROC_STATUS.indexOf(r.status)>=0 ? r.status : 'rascunho', client:procClampStr(r.cliente_origem,120),
       date:/^\d{4}-\d{2}-\d{2}/.test(r.data_origem||'') ? r.data_origem.slice(0,10) : '',
       tags:(Array.isArray(r.tags) ? r.tags : []).filter(t=>typeof t==='string').map(t=>procClampStr(t.trim(),40)).filter(Boolean).slice(0,30) };
   }).filter(Boolean);
 }
 function serverProcSlug(title){ return userSlug(title).slice(0,30) || 'proc'; }
+/* Título mostrado fora do português: titleEn (fallback único, preenchido na mesma tradução ansiosa
+   pro inglês do upload -- ver Procedimento.titulo_en) se houver, senão o título original mesmo. Ao
+   contrário do corpo (procDisplayHtml), nunca busca sob demanda: é cosmético, não vale uma chamada
+   extra ao Gemini nem tradução pro espanhol -- pt mostra o original, qualquer outro idioma mostra o
+   inglês (ou o original, se a tradução ansiosa ainda não rodou/falhou). */
+function dispTitle(title, titleEn){ return (state.lang!=='pt' && titleEn) ? titleEn : title; }
 /* Detalhe do servidor + linha da listagem -> registro do arquivo de biblioteca (o HTML é sanitizado na importação). */
 function serverProcToLib(row, detail){
   if(!isPlainObject(detail) || typeof detail.html_original!=='string' || !detail.html_original || detail.html_original.length>PROC_MAX_BYTES) return null;
   return { id:serverProcId(row.sid), family:'srvf-'+serverProcSlug(row.title), title:row.title, products:guessProducts(row.title+' '+row.tags.join(' ')),
     tags:row.tags, sourceClient:row.client, date:row.date, status:row.status, version:row.version, html:detail.html_original,
-    langOriginal:typeof detail.idioma_original==='string' ? detail.idioma_original : '' };
+    langOriginal:typeof detail.idioma_original==='string' ? detail.idioma_original : '',
+    titleEn:typeof detail.titulo_en==='string' ? detail.titulo_en : '' };
 }
 /* ---- tradução de exibição de procedimento do servidor, sob demanda ----
    `html` na biblioteca local é sempre o `html_original` (idioma em que o procedimento foi escrito,

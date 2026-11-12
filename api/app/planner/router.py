@@ -142,6 +142,10 @@ class ProcedureDraftIn(BaseModel):
 class ProcedureDraftOut(BaseModel):
     id: uuid.UUID
     titulo: str
+    # Fallback em inglês, preenchido na mesma chamada que já traduz html_original pro inglês (ver
+    # Procedimento.titulo_en em app/models.py) -- o planejador mostra isto em vez de `titulo`
+    # quando o idioma da tela não é português, sem precisar traduzir o título sob demanda.
+    titulo_en: str | None
     tags: list[str]
     cliente_origem: str | None
     status: str
@@ -187,6 +191,7 @@ def procedure_draft(
     return ProcedureDraftOut(
         id=procedimento.id,
         titulo=procedimento.titulo,
+        titulo_en=procedimento.titulo_en,
         tags=procedimento.tags,
         cliente_origem=procedimento.cliente_origem,
         status=procedimento.status.value,

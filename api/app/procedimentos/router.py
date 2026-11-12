@@ -81,11 +81,12 @@ def _criar_procedimento(
     # gastar Gemini com um idioma que ninguém chegue a abrir. Nunca derruba o upload: se falhar
     # (rede, quota), fica pra tentar de novo na primeira visualização.
     try:
-        traducao = traduzir_procedimento_html(html, "en", api_key=api_key)
+        traducao = traduzir_procedimento_html(html, "en", titulo, api_key=api_key)
         if traducao.idioma_detectado in _IDIOMAS_SITE:
             procedimento.idioma_original = traducao.idioma_detectado
         if procedimento.idioma_original != "en":
             procedimento.traducoes = {"en": traducao.html_traduzido}
+        procedimento.titulo_en = traducao.titulo_traduzido[:255]
     except Exception:
         logger.warning("Falha ao traduzir procedimento %r para inglês no upload", titulo, exc_info=True)
 
@@ -160,13 +161,18 @@ def _html_no_idioma(
         return cacheado, lang
 
     try:
-        traducao = traduzir_procedimento_html(procedimento.html_original, lang, api_key=api_key)
+        traducao = traduzir_procedimento_html(procedimento.html_original, lang, procedimento.titulo, api_key=api_key)
     except Exception:
         logger.warning("Falha ao traduzir procedimento %s para %s", procedimento.id, lang, exc_info=True)
         return procedimento.html_original, procedimento.idioma_original
 
     if traducao.idioma_detectado in _IDIOMAS_SITE:
         procedimento.idioma_original = traducao.idioma_detectado
+    # Backfill de titulo_en pra quem a tradução ansiosa do upload falhou (rede, quota) e só deu certo
+    # agora, numa visita em inglês -- mesmo titulo_traduzido que a chamada acima já devolveu, sem
+    # chamada extra ao Gemini.
+    if lang == "en" and not procedimento.titulo_en:
+        procedimento.titulo_en = traducao.titulo_traduzido[:255]
     if procedimento.idioma_original == lang:
         db.commit()
         return procedimento.html_original, lang
