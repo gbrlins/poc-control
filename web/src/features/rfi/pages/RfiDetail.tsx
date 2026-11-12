@@ -495,7 +495,7 @@ function RfiItemRow({
   return (
     <div className="item-row">
       <div
-        style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 14px", cursor: "pointer" }}
+        style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 14px", cursor: "pointer" }}
         onClick={() => setOpen((v) => !v)}
       >
         <span className="item-codigo">{item.codigo}</span>
@@ -525,9 +525,7 @@ function RfiItemRow({
       {open && (
         <div className="item-row-body">
           {!item.veredito && (
-            <p style={{ marginTop: 0 }}>
-              <b>{item.etapa ? t(`rfiItemRow.etapa.${item.etapa}`) : t("rfiItemRow.etapa.fila")}</b>
-            </p>
+            <p style={{ marginTop: 0 }}>{item.etapa ? t(`rfiItemRow.etapa.${item.etapa}`) : t("rfiItemRow.etapa.fila")}</p>
           )}
           {item.justificativa && <p className="muted" style={{ marginTop: 0 }}>{item.justificativa}</p>}
           {erroReavaliar && <p className="alert alert-error" style={{ marginTop: 0 }}>{erroReavaliar}</p>}
@@ -545,18 +543,17 @@ function RfiItemRow({
             </p>
           )}
           {item.fontes.length > 0 && (
-            <>
-              {item.procedimento_id && <p className="muted">{t("rfiItemRow.fontesComplementares")}</p>}
-              <ul style={{ paddingLeft: 18, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                {item.fontes.map((f, i) => (
-                  <li key={i} style={{ display: "list-item" }}>
-                    <a href={f.url} target="_blank" rel="noreferrer">
-                      {f.titulo}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </>
+            <p style={{ marginTop: 0 }}>
+              {item.procedimento_id && <span className="muted">{t("rfiItemRow.fontesComplementares")} </span>}
+              {item.fontes.map((f, i) => (
+                <span key={i}>
+                  <a href={f.url} target="_blank" rel="noreferrer">
+                    {f.titulo}
+                  </a>
+                  {i < item.fontes.length - 1 ? ", " : ""}
+                </span>
+              ))}
+            </p>
           )}
 
           <div style={{ display: "flex", gap: 8 }}>

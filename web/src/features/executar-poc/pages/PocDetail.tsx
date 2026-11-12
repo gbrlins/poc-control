@@ -1105,6 +1105,7 @@ function ItemRow({
   const [importando, setImportando] = useState(false);
   const [sugestoes, setSugestoes] = useState<ProcedimentoListItem[] | null>(null);
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
+  const [erroSugestoes, setErroSugestoes] = useState<string | null>(null);
   const [linkando, setLinkando] = useState(false);
   const [verProcedimento, setVerProcedimento] = useState(false);
 
@@ -1133,10 +1134,15 @@ function ItemRow({
     setImportando(abrindo);
     if (abrindo && sugestoes === null) {
       setCarregandoSugestoes(true);
+      setErroSugestoes(null);
       try {
         const lista = await api.sugerirProcedimentos(pocId, item.id);
         setSugestoes(lista);
-      } catch {
+      } catch (e) {
+        // Antes isto virava "sem sugestões" silenciosamente mesmo quando a chamada ao Gemini
+        // falhava de verdade (ex.: sem credencial) -- mesma classe de bug já corrigida no RFI:
+        // guardar o erro real em vez de fingir que a busca deu zero resultado.
+        setErroSugestoes(e instanceof ApiError ? e.message : t("itemRow.erroSugestoes"));
         setSugestoes([]);
       } finally {
         setCarregandoSugestoes(false);
@@ -1449,9 +1455,31 @@ function ItemRow({
                           </button>
                         ))}
                       </div>
+                    ) : erroSugestoes ? (
+                      <p className="alert alert-error">{erroSugestoes}</p>
                     ) : (
                       <p className="empty-state">{t("itemRow.semSugestoes")}</p>
                     )}
+                    {!erroSugestoes &&
+                      item.classificacao?.flag === "amarelo" &&
+                      !item.classificacao.procedimento_id &&
+                      !item.classificacao.procedimento_rascunho_id && (
+                        <div style={{ marginTop: 10 }}>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => void gerarRascunho()}
+                            disabled={gerandoRascunho}
+                            type="button"
+                          >
+                            {gerandoRascunho ? t("itemRow.gerandoRascunho") : t("itemRow.gerarRascunho")}
+                          </button>
+                          {erroRascunho && (
+                            <p className="alert alert-error" style={{ marginTop: 8 }}>
+                              {erroRascunho}
+                            </p>
+                          )}
+                        </div>
+                      )}
                   </>
                 )}
                 <div className="field" style={{ marginTop: 10 }}>
