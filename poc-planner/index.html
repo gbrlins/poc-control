@@ -1065,7 +1065,14 @@ function initState(){
   activeProjectId = id;
   try{ localStorage.setItem(ACTIVE_PROJECT_KEY, id); }catch(e){}
   const raw = localStorage.getItem(projectKey(id));
-  return (raw && normalizeLoadedState(raw)) || defaultState();
+  const loaded = (raw && normalizeLoadedState(raw)) || defaultState();
+  /* Every (re)load of this file -- new tab, iframe reload on theme/language change -- must land on
+     the dashboard, same as switchToProject() already does below. `view` used to be reset here via a
+     `?start=` URL param (applyUrlStart, removed); nothing replaced it, so whatever wizard step was
+     last open before a reload reopened directly, skipping the dashboard entirely. `lastStep` (not
+     `view`) is the one field meant to survive a reload, for the dashboard's own Continue button. */
+  loaded.view = 'dashboard';
+  return loaded;
 }
 
 let state = initState();
@@ -1931,7 +1938,7 @@ function procDraftHtml(p, x, g){
     + '</div>';
 }
 function procPickerHtml(p, x, g){
-  const ps = procPicker, i = x.i, lib = loadLibrary();
+  const ps = procPicker, i = x.i, lib = loadLibrary(), busy = !!draftBusy[x.t.id];
   const box = (inner)=>'<div class="field-box no-print" style="margin-top:2px;">'+inner+'</div>';
   if(!lib.length) return box('<div class="text-xs">' + g('A biblioteca de procedimentos está vazia neste navegador.','The procedure library is empty in this browser.','La biblioteca de procedimientos está vacía en este navegador.')
     + ' <a href="#" style="color:var(--suse-base);font-weight:700;" onclick="P.go(\'library\');return false;">' + g('Importar procedimentos','Import procedures','Importar procedimientos') + '</a> '
@@ -1943,7 +1950,9 @@ function procPickerHtml(p, x, g){
     return '<div class="flex justify-between items-center" style="padding:6px 0;border-top:1px solid var(--gray-100);gap:10px;"><div style="min-width:0;">'
       + '<div style="font-weight:800;font-size:12.5px;">' + esc(dispTitle(q.title,q.titleEn)) + ' <span class="pill">v'+q.version+'</span> <span class="pill '+(q.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[q.status][state.lang]+'</span></div>'
       + '<div class="text-xs text-muted">' + (hint ? g('Combina por: ','Matches on: ','Coincide por: ') + hint : '') + (ps.query ? (hint?' · ':'') + (q.tags.length?esc(q.tags.join(', ')):'') : '') + '</div></div>'
-      + '<button class="btn btn-primary btn-sm" onclick="P.testLinkProc(\''+p.id+'\','+i+',\''+q.id+'\')">' + g('Vincular','Link','Vincular') + '</button></div>';
+      /* Disabled while an AI draft is generating for this same test (draftBusy): linking here would
+         race generateProcedureDraft()'s async resolution -- see the comment there. */
+      + '<button class="btn btn-primary btn-sm" '+(busy?'disabled ':'')+'onclick="P.testLinkProc(\''+p.id+'\','+i+',\''+q.id+'\')">' + g('Vincular','Link','Vincular') + '</button></div>';
   }).join('');
   return box('<div class="flex gap-2 items-center flex-wrap">'
       + '<input type="text" class="t-compact" style="flex:1;min-width:180px;" value="'+esc(ps.query)+'" placeholder="'+g('Buscar na biblioteca (título, tag, seção)...','Search the library (title, tag, section)...','Buscar en la biblioteca (título, tag, sección)...')+'" onchange="P.procPickQuery(this.value)">'
@@ -1954,9 +1963,9 @@ function procPickerHtml(p, x, g){
     + procDraftHtml(p, x, g));
 }
 function procLinkLine(p, x, g){
-  const t = x.t, i = x.i, lib = loadLibrary(), L = state.lang;
+  const t = x.t, i = x.i, lib = loadLibrary(), L = state.lang, busy = !!draftBusy[t.id];
   const open = procPicker && procPicker.pid===p.id && procPicker.i===i;
-  const btn = (cls, onclick, label)=>'<button class="btn '+cls+' btn-sm" onclick="'+onclick+'">'+label+'</button>';
+  const btn = (cls, onclick, label, disabled)=>'<button class="btn '+cls+' btn-sm" '+(disabled?'disabled ':'')+'onclick="'+onclick+'">'+label+'</button>';
   const ver = Number(t.procVersion) > 0 ? Math.floor(Number(t.procVersion)) : 0;
   let main = '';
   if(t.procId){
@@ -1964,12 +1973,14 @@ function procLinkLine(p, x, g){
     if(proc){
       const newest = lib.filter(q=>q.family===proc.family).reduce((a,b)=>b.version>a.version ? b : a, proc);
       main = '<span class="text-xs" style="font-weight:800;">' + Icon('book') + ' ' + esc(dispTitle(proc.title,proc.titleEn)) + '</span> <span class="pill">v'+proc.version+'</span> <span class="pill '+(proc.status==='validado'?'pill-ok':'pill-warn')+'">'+PROC_STATUS_LABEL[proc.status][L]+'</span>'
-        + (newest.id!==proc.id ? ' <span class="pill pill-warn">v'+newest.version+' '+g('disponível','available','disponible')+'</span> ' + btn('btn-ghost', 'P.testLinkProc(\''+p.id+'\','+i+',\''+newest.id+'\')', g('Atualizar','Update','Actualizar')) : '')
+        + (newest.id!==proc.id ? ' <span class="pill pill-warn">v'+newest.version+' '+g('disponível','available','disponible')+'</span> ' + btn('btn-ghost', 'P.testLinkProc(\''+p.id+'\','+i+',\''+newest.id+'\')', g('Atualizar','Update','Actualizar'), busy) : '')
         + ' ' + btn('btn-ghost', 'P.testOpenProc(\''+proc.id+'\')', g('Abrir','Open','Abrir'));
     } else {
       main = '<span class="pill pill-warn">' + Icon('alert') + ' ' + g('Procedimento vinculado não está na biblioteca deste navegador','Linked procedure is not in this browser’s library','El procedimiento vinculado no está en la biblioteca de este navegador') + (ver ? ' (v'+ver+')' : '') + '</span>';
     }
-    main += ' ' + btn('btn-ghost', 'P.procPick(\''+p.id+'\','+i+')', g('Alterar','Change','Cambiar')) + btn('btn-ghost', 'P.testUnlinkProc(\''+p.id+'\','+i+')', g('Remover vínculo','Remove link','Quitar vínculo'));
+    /* "Atualizar"/"Remover vínculo" disabled while draftBusy[t.id]: both mutate procId synchronously
+       and would otherwise race generateProcedureDraft()'s async resolution for this same test. */
+    main += ' ' + btn('btn-ghost', 'P.procPick(\''+p.id+'\','+i+')', g('Alterar','Change','Cambiar')) + btn('btn-ghost', 'P.testUnlinkProc(\''+p.id+'\','+i+')', g('Remover vínculo','Remove link','Quitar vínculo'), busy);
   } else {
     main = '<span class="text-xs text-muted">' + g('Sem procedimento vinculado','No linked procedure','Sin procedimiento vinculado') + '</span> ' + btn('btn-outline', 'P.procPick(\''+p.id+'\','+i+')', Icon('book') + ' ' + g('Vincular procedimento','Link procedure','Vincular procedimiento'));
   }
@@ -2056,8 +2067,10 @@ function renderDashboard(){
 }
 /* Uma lista só: o projeto aberto (destacado) e os demais salvos. */
 function renderProjectsList(){
-  const current = state.project.projectName ? { id:activeProjectId, name:state.project.projectName, updatedAt:null, cur:true } : null;
-  const others = loadProjectsIndex().filter(p=>p.id!==activeProjectId).sort((a,b)=>b.updatedAt-a.updatedAt);
+  const idx = loadProjectsIndex();
+  const curEntry = idx.find(p=>p.id===activeProjectId);
+  const current = state.project.projectName ? { id:activeProjectId, name:state.project.projectName, updatedAt:curEntry?curEntry.updatedAt:null, cur:true } : null;
+  const others = idx.filter(p=>p.id!==activeProjectId).sort((a,b)=>b.updatedAt-a.updatedAt);
   const rows = (current ? [current] : []).concat(others);
   if(!rows.length) return '';
   const nProducts = Object.values(state.selectedProducts).filter(Boolean).length;
@@ -2066,11 +2079,11 @@ function renderProjectsList(){
     + '<h3 style="font-weight:900;font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:8px;">' + Icon('folder') + ' ' + tr('projects.title') + '</h3>'
     + rows.map(p => '<div class="flex justify-between items-center" style="padding:8px 0;border-top:1px solid var(--gray-100);">'
         + '<div><div style="font-weight:'+(p.cur?'900':'700')+';font-size:13px;">' + esc(p.name) + (p.cur ? ' <span class="pill pill-ok">'+tr('projects.current')+'</span>' : '') + '</div>'
-        + '<div class="text-xs text-muted">' + (p.cur ? esc(state.project.clientOrganization||'') + ' · ' + nProducts + ' ' + unit : tr('projects.updated') + ' ' + fmtTime(p.updatedAt)) + '</div></div>'
-        + (p.cur ? '' : '<div class="flex gap-2">'
-          + '<button class="btn btn-outline btn-sm" onclick="P.switchProject(\''+p.id+'\')">' + Icon('chevronR') + ' ' + tr('projects.open') + '</button>'
+        + '<div class="text-xs text-muted">' + (p.cur ? esc(state.project.clientOrganization||'') + ' · ' + nProducts + ' ' + unit + (p.updatedAt ? ' · ' + tr('projects.updated') + ' ' + fmtTime(p.updatedAt) : '') : tr('projects.updated') + ' ' + fmtTime(p.updatedAt)) + '</div></div>'
+        + '<div class="flex gap-2">'
+          + (p.cur ? '' : '<button class="btn btn-outline btn-sm" onclick="P.switchProject(\''+p.id+'\')">' + Icon('chevronR') + ' ' + tr('projects.open') + '</button>')
           + '<button class="btn btn-ghost btn-sm" title="'+tr('projects.delete')+'" onclick="P.deleteProject(\''+p.id+'\')">' + Icon('trash') + '</button>'
-        + '</div>')
+        + '</div>'
       + '</div>').join('')
   + '</div>';
 }
@@ -3258,11 +3271,16 @@ function buildReadiness(g){
     add(A.net, g('CIDR do cluster no no-proxy','Cluster CIDR in no-proxy','CIDR del clúster en no-proxy'), (n.noProxy||'').indexOf((n.managementCidr||'').split('/')[0].split('.').slice(0,3).join('.'))>=0?'ok':'confirm',
       g('Guia §9.1.2: se os nós não usam proxy entre si, o CIDR deve estar em http-proxy.noProxy após instalar o 1º nó.','Guide §9.1.2: if nodes do not proxy to each other, the CIDR must be in http-proxy.noProxy after the first node is installed.','Guía §9.1.2: si los nodos no usan proxy entre sí, el CIDR debe estar en http-proxy.noProxy tras instalar el 1.er nodo.'));
   }
+  if(n.hasAirGap) add(A.net, g('Air-gap: processo de importação de imagens','Air-gap: image import process','Air-gap: proceso de importación de imágenes'), 'confirm',
+    g('Sem internet, as imagens de container e os pacotes de instalação precisam chegar por outro caminho antes do deploy: pré-carregue um mirror/registry privado (ex.: skopeo ou docker save+load) ou monte as mídias/ISOs correspondentes. Veja os requisitos de registry de cada produto abaixo.','Without internet, container images and installation packages must arrive another way before deploy: pre-load a private mirror/registry (e.g. skopeo or docker save+load) or mount the corresponding media/ISOs. See each product’s registry requirements below.','Sin internet, las imágenes de contenedor y los paquetes de instalación deben llegar de otra forma antes del deploy: precargue un mirror/registry privado (p. ej. skopeo o docker save+load) o monte los medios/ISOs correspondientes. Vea los requisitos de registry de cada producto abajo.'));
   if(n.hasAirGap) add(A.net, g('Air-gap: imagens dos clusters guest','Air-gap: guest cluster images','Air-gap: imágenes de clústeres guest'), sp.registry?'ok':'confirm',
     g('Guia §9.1.3: o ISO do Virtualization é autossuficiente, mas clusters RKE2 guest precisam de registry privado.','Guide §9.1.3: the Virtualization ISO is self-contained, but guest RKE2 clusters need a private registry.','Guía §9.1.3: el ISO de Virtualization es autosuficiente, pero los clústeres RKE2 guest necesitan un registry privado.'));
   if(sp.appcollection) add(A.net, g('Application Collection é SaaS (dp.apps.rancher.io)','Application Collection is SaaS (dp.apps.rancher.io)','Application Collection es SaaS (dp.apps.rancher.io)'), n.hasAirGap?'confirm':'ok',
     n.hasAirGap ? g('Rede air-gap: as ISOs do EIB não embarcam conteúdo do catálogo (só o Rancher usa o AC, no build, para o cert-manager). Para instalar apps do AC no cluster é preciso saída 443 para dp.apps.rancher.io ou um espelho local.','Air-gap network: the EIB ISOs do not embed catalog content (only Rancher uses the AC, at build time, for cert-manager). Installing AC apps in the cluster needs outbound 443 to dp.apps.rancher.io or a local mirror.','Red air-gap: las ISOs de EIB no embeben contenido del catálogo (solo Rancher usa el AC, en el build, para cert-manager). Instalar apps del AC en el clúster requiere salida 443 a dp.apps.rancher.io o un espejo local.') : g('Saída 443 para dp.apps.rancher.io (ver Portas).','Outbound 443 to dp.apps.rancher.io (see Ports).','Salida 443 a dp.apps.rancher.io (ver Puertos).'));
-  if(sp.rancher) add(A.net, g('Load Balancer para o Rancher (nós Harvester → TCP 443)','Load Balancer for Rancher (Harvester nodes → TCP 443)','Load Balancer para Rancher (nodos Harvester → TCP 443)'), n.hasLoadBalancer?'ok':'confirm', g('Guia §7.2.2: todos os nós precisam alcançar a porta 443 do LB do Rancher.','Guide §7.2.2: all nodes must reach port 443 of the Rancher LB.','Guía §7.2.2: todos los nodos deben alcanzar el puerto 443 del LB de Rancher.'));
+  if(sp.rancher) add(A.net, g('Load Balancer para o Rancher (nós Harvester → TCP 443)','Load Balancer for Rancher (Harvester nodes → TCP 443)','Load Balancer para Rancher (nodos Harvester → TCP 443)'), n.hasLoadBalancer?'ok':'confirm',
+    n.hasLoadBalancer
+      ? g('Guia §7.2.2: todos os nós precisam alcançar a porta 443 do LB do Rancher.','Guide §7.2.2: all nodes must reach port 443 of the Rancher LB.','Guía §7.2.2: todos los nodos deben alcanzar el puerto 443 del LB de Rancher.')
+      : g('Sem Load Balancer: aponte o DNS/FQDN do Rancher direto para o IP do nó (ou rode um único nó) — sem LB não há failover entre nós se um ficar indisponível.','No load balancer: point the Rancher DNS/FQDN straight at the node’s IP (or run a single node) — without an LB there is no failover between nodes if one becomes unavailable.','Sin Load Balancer: apunte el DNS/FQDN de Rancher directo a la IP del nodo (o ejecute un solo nodo) — sin LB no hay failover entre nodos si uno queda no disponible.'));
 
   if(sp.virtualization){
     const vi=state.virtInstall, vn=state.virtNet, inf=state.infra.virtualization;
@@ -3804,7 +3822,8 @@ let draftBusy = {}, draftError = '';
 function generateProcedureDraft(productId, i){
   const t = (state.testCases[productId]||[])[i]; if(!t || draftBusy[t.id] || !connectorHas('draft')) return;
   const L = state.lang, g = (pt,en,es)=>({pt,en,es})[L] || en, pr = state.project;
-  draftBusy[t.id] = true; draftError = ''; render();
+  const testId = t.id, procIdAtRequest = t.procId || null;
+  draftBusy[testId] = true; draftError = ''; render();
   const body = { test:{ id:t.catalogId||t.id, product:productId, title:testTitle(t,'pt'), expected:testExpected(t,'pt') },
     client: pr.clientOrganization || '', scope: [pr.presalesUseCase, pr.businessIssue, pr.targetInfrastructure].filter(Boolean).join(' ') };
   return connectorSend('/procedure-draft', { headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify(body) })
@@ -3816,14 +3835,24 @@ function generateProcedureDraft(productId, i){
       const res = libraryImportData({ procedures:[rec] });
       if(res.error) throw { code:'storage', error:res.error };
       if(!res.added && !res.skipped) throw { code:'shape' };
-      t.procId = rec.id; t.procVersion = rec.version; procPicker = null; saveState();
+      /* Re-fetch by id instead of trusting the captured `t`: while this request was in flight (up to
+         300s) the user could have linked/unlinked a different procedure to this same test via the
+         synchronous testLinkProc/testUnlinkProc. If procId changed since the request started, don't
+         clobber that choice -- the draft stays in the local library, just unlinked, and the user links
+         it manually from the picker if they still want it. */
+      const cur = testByCaseId(testId);
+      if(cur && cur.procId === procIdAtRequest){
+        cur.procId = rec.id; cur.procVersion = rec.version; procPicker = null; saveState();
+      } else {
+        draftError = g('Rascunho gerado e salvo na biblioteca, mas não vinculado: o vínculo deste teste mudou enquanto o rascunho era gerado. Vincule manualmente se ainda quiser usá-lo.','Draft generated and saved to the library, but not linked: this test’s link changed while the draft was generating. Link it manually if you still want it.','Borrador generado y guardado en la biblioteca, pero no vinculado: el vínculo de este test cambió mientras se generaba el borrador. Vincúlelo manualmente si todavía lo quiere.');
+      }
     })
     .catch(e=>{
       draftError = e && e.code==='shape' ? g('Resposta do servidor em formato inesperado.','Unexpected server response.','Respuesta del servidor con formato inesperado.')
         : e && e.code==='storage' ? (e.error==='quota' ? libraryQuotaText() : libraryErrorText())
         : connectorErrorText(e,g);
     })
-    .then(()=>{ delete draftBusy[t.id]; render(); });
+    .then(()=>{ delete draftBusy[testId]; render(); });
 }
 function fitSuggestionHtml(p, i, t, g, L){
   const s = t.fitSuggestion, busy = !!fitBusy[t.id];
