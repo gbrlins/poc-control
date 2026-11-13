@@ -308,6 +308,7 @@ def gerar_rascunho_planner(
     dono_id: uuid.UUID,
     api_key: str | None,
     model: str | None,
+    lang: str | None = None,
 ) -> Procedimento:
     """Mesmo mecanismo de app/classificacao/service.py::gerar_rascunho_procedimento (pesquisa com
     grounding + geração estruturada do HTML), só que pra um teste do planejador em vez de um
@@ -315,11 +316,14 @@ def gerar_rascunho_planner(
     quando o plano for "habilitado" como execução, ver execution_payload no poc-control). Cria como
     status=rascunho (invisível pra _buscar_candidatos até o usuário validar) e
     origem=OrigemConhecimento.planejador, pra distinguir de um rascunho nascido de um Item de PoC
-    de verdade."""
+    de verdade. `lang`: idioma da tela do planejador no momento do clique (branch v2) -- deixou de
+    ser forçado em português."""
     item_texto = f"{titulo}\nResultado esperado: {esperado}" if esperado else titulo
     contexto = _contexto_planner(produto, cliente, escopo)
-    pesquisa_texto, fontes = pesquisar_implementacao_item(item_texto, contexto, api_key=api_key, model=model)
-    rascunho = gerar_procedimento_guiado(item_texto, contexto, pesquisa_texto, fontes, api_key=api_key, model=model)
+    pesquisa_texto, fontes = pesquisar_implementacao_item(item_texto, contexto, api_key=api_key, model=model, lang=lang)
+    rascunho = gerar_procedimento_guiado(
+        item_texto, contexto, pesquisa_texto, fontes, api_key=api_key, model=model, lang=lang
+    )
     return _criar_procedimento(
         db,
         titulo=rascunho.titulo[:255],

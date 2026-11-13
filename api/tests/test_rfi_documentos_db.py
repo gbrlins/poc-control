@@ -52,7 +52,7 @@ def usuario(db):
 def gemini_falso(monkeypatch):
     avaliados: list[str] = []
 
-    def extrair(pdf_bytes=None, texto=None, api_key=None, model=None):
+    def extrair(pdf_bytes=None, texto=None, api_key=None, model=None, lang=None):
         if texto and "QUEBRA" in texto:
             raise RuntimeError("falha simulada")
         linhas = [l for l in (texto or "").splitlines() if l.strip()]
@@ -63,7 +63,7 @@ def gemini_falso(monkeypatch):
             itens=[ItemRfiExtraido(codigo=l.split()[0], categoria="K8s", categoria_codigo="K8S", descricao=l) for l in linhas],
         )
 
-    def avaliar(db, item, api_key=None, model=None):
+    def avaliar(db, item, api_key=None, model=None, lang=None):
         avaliados.append(item.codigo)
         item.veredito = VeredictoRfi.atende
         item.origem = OrigemClassificacao.auto
@@ -179,7 +179,7 @@ def test_cancelar_marca_itens_pendentes_e_libera_o_rfi(usuario, db, monkeypatch)
     c = TestClient(app)
     visto = []
 
-    def avaliar_e_cancela(db_, item, api_key=None, model=None):
+    def avaliar_e_cancela(db_, item, api_key=None, model=None, lang=None):
         # o usuário aperta "Interromper" durante o primeiro item
         if not visto:
             assert c.post(f"/api/rfis/{item.rfi_id}/cancelar").status_code == 202

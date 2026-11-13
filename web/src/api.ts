@@ -425,11 +425,16 @@ export const api = {
 
   listarPocs: () => request<PocListItem[]>("/api/pocs"),
   obterPoc: (id: string) => request<PocDetail>(`/api/pocs/${id}`),
-  criarPoc: (form: FormData) => request<PocListItem>("/api/pocs", { method: "POST", body: form }),
-  reextrairPoc: (pocId: string) =>
-    request<{ status: string }>(`/api/pocs/${pocId}/reextrair`, { method: "POST" }),
-  adicionarDocumentosPoc: (pocId: string, form: FormData) =>
-    request<PocListItem>(`/api/pocs/${pocId}/documentos`, { method: "POST", body: form }),
+  criarPoc: (form: FormData, lang: string) => {
+    form.set("lang", lang);
+    return request<PocListItem>("/api/pocs", { method: "POST", body: form });
+  },
+  reextrairPoc: (pocId: string, lang: string) =>
+    request<{ status: string }>(`/api/pocs/${pocId}/reextrair?lang=${lang}`, { method: "POST" }),
+  adicionarDocumentosPoc: (pocId: string, form: FormData, lang: string) => {
+    form.set("lang", lang);
+    return request<PocListItem>(`/api/pocs/${pocId}/documentos`, { method: "POST", body: form });
+  },
   removerDocumentoPoc: (pocId: string, documentoId: string) =>
     request<void>(`/api/pocs/${pocId}/documentos/${documentoId}`, { method: "DELETE" }),
   cancelarPoc: (pocId: string) => request<PocListItem>(`/api/pocs/${pocId}/cancelar`, { method: "POST" }),
@@ -448,30 +453,33 @@ export const api = {
       body: JSON.stringify({ atendido }),
     }),
 
-  classificarItem: (pocId: string, itemId: string) =>
-    request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}/classificar`, { method: "POST" }),
+  classificarItem: (pocId: string, itemId: string, lang: string) =>
+    request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}/classificar?lang=${lang}`, { method: "POST" }),
   sobrescreverClassificacao: (pocId: string, itemId: string, payload: ClassificacaoManualPayload) =>
     request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}/classificacao`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  classificarPendentes: (pocId: string) =>
-    request<{ status: string }>(`/api/pocs/${pocId}/classificar-pendentes`, { method: "POST" }),
-  gerarRascunhoItem: (pocId: string, itemId: string) =>
-    request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}/gerar-rascunho`, { method: "POST" }),
+  classificarPendentes: (pocId: string, lang: string) =>
+    request<{ status: string }>(`/api/pocs/${pocId}/classificar-pendentes?lang=${lang}`, { method: "POST" }),
+  gerarRascunhoItem: (pocId: string, itemId: string, lang: string) =>
+    request<ItemPoc>(`/api/pocs/${pocId}/itens/${itemId}/gerar-rascunho?lang=${lang}`, { method: "POST" }),
 
   criarSessao: (pocId: string, payload: SessaoPayload) =>
     request<Sessao>(`/api/pocs/${pocId}/sessoes`, { method: "POST", body: JSON.stringify(payload) }),
-  importarSessao: (pocId: string, texto: string) =>
-    request<Sessao>(`/api/pocs/${pocId}/sessoes/importar`, { method: "POST", body: JSON.stringify({ texto }) }),
-  gerarResumoSessao: (pocId: string, sessaoId: string) =>
-    request<{ texto: string }>(`/api/pocs/${pocId}/sessoes/${sessaoId}/resumo`, { method: "POST" }),
+  importarSessao: (pocId: string, texto: string, lang: string) =>
+    request<Sessao>(`/api/pocs/${pocId}/sessoes/importar?lang=${lang}`, {
+      method: "POST",
+      body: JSON.stringify({ texto }),
+    }),
+  gerarResumoSessao: (pocId: string, sessaoId: string, lang: string) =>
+    request<{ texto: string }>(`/api/pocs/${pocId}/sessoes/${sessaoId}/resumo?lang=${lang}`, { method: "POST" }),
   urlExportarPoc: (pocId: string) => `/api/pocs/${pocId}/export`,
   urlApresentacaoPoc: (pocId: string) => `/api/pocs/${pocId}/apresentacao`,
   urlRoteiro: (pocId: string, itemIds: string[]) =>
     `/api/pocs/${pocId}/roteiro?${itemIds.map((id) => `item_ids=${encodeURIComponent(id)}`).join("&")}`,
-  gerarResumoExecutivo: (pocId: string) =>
-    request<{ texto: string }>(`/api/pocs/${pocId}/apresentacao/resumo`, { method: "POST" }),
+  gerarResumoExecutivo: (pocId: string, lang: string) =>
+    request<{ texto: string }>(`/api/pocs/${pocId}/apresentacao/resumo?lang=${lang}`, { method: "POST" }),
   salvarResumoExecutivo: (pocId: string, texto: string) =>
     request<{ texto: string }>(`/api/pocs/${pocId}/apresentacao/resumo`, {
       method: "PATCH",
@@ -500,23 +508,31 @@ export const api = {
 
   listarRfis: () => request<RfiListItem[]>("/api/rfis"),
   obterRfi: (id: string) => request<RfiDetail>(`/api/rfis/${id}`),
-  criarRfi: (form: FormData) => request<RfiListItem>("/api/rfis", { method: "POST", body: form }),
-  reextrairRfi: (rfiId: string) => request<RfiListItem>(`/api/rfis/${rfiId}/reextrair`, { method: "POST" }),
-  adicionarDocumentosRfi: (rfiId: string, form: FormData) =>
-    request<RfiListItem>(`/api/rfis/${rfiId}/documentos`, { method: "POST", body: form }),
+  criarRfi: (form: FormData, lang: string) => {
+    form.set("lang", lang);
+    return request<RfiListItem>("/api/rfis", { method: "POST", body: form });
+  },
+  reextrairRfi: (rfiId: string, lang: string) =>
+    request<RfiListItem>(`/api/rfis/${rfiId}/reextrair?lang=${lang}`, { method: "POST" }),
+  adicionarDocumentosRfi: (rfiId: string, form: FormData, lang: string) => {
+    form.set("lang", lang);
+    return request<RfiListItem>(`/api/rfis/${rfiId}/documentos`, { method: "POST", body: form });
+  },
   removerDocumentoRfi: (rfiId: string, documentoId: string) =>
     request<void>(`/api/rfis/${rfiId}/documentos/${documentoId}`, { method: "DELETE" }),
   cancelarRfi: (rfiId: string) => request<RfiListItem>(`/api/rfis/${rfiId}/cancelar`, { method: "POST" }),
-  reavaliarRfi: (rfiId: string, incluirManuais: boolean, somentePendentes = false) =>
+  reavaliarRfi: (rfiId: string, incluirManuais: boolean, lang: string, somentePendentes = false) =>
     request<RfiListItem>(
-      `/api/rfis/${rfiId}/reavaliar?incluir_manuais=${incluirManuais}&somente_pendentes=${somentePendentes}`, { method: "POST" }),
+      `/api/rfis/${rfiId}/reavaliar?incluir_manuais=${incluirManuais}&somente_pendentes=${somentePendentes}&lang=${lang}`,
+      { method: "POST" },
+    ),
   sobrescreverVeredictoRfi: (rfiId: string, itemId: string, payload: RfiItemManualPayload) =>
     request<RfiItemOut>(`/api/rfis/${rfiId}/itens/${itemId}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
-  reavaliarItemRfi: (rfiId: string, itemId: string) =>
-    request<RfiItemOut>(`/api/rfis/${rfiId}/itens/${itemId}/reavaliar`, { method: "POST" }),
+  reavaliarItemRfi: (rfiId: string, itemId: string, lang: string) =>
+    request<RfiItemOut>(`/api/rfis/${rfiId}/itens/${itemId}/reavaliar?lang=${lang}`, { method: "POST" }),
   urlExportarRfi: (rfiId: string) => `/api/rfis/${rfiId}/export`,
   urlExportarRfiXlsx: (rfiId: string) => `/api/rfis/${rfiId}/export.xlsx`,
 

@@ -13,9 +13,15 @@ from app.rfi.service import avaliar_item_rfi
 
 logger = logging.getLogger(__name__)
 
-JUSTIFICATIVA_INTERROMPIDO = (
-    'Avaliação interrompida antes de chegar a este item — use "Reavaliar" (no item ou no RFI) para avaliá-lo.'
-)
+_JUSTIFICATIVA_INTERROMPIDO = {
+    "pt": 'Avaliação interrompida antes de chegar a este item — use "Reavaliar" (no item ou no RFI) para avaliá-lo.',
+    "en": 'Evaluation stopped before reaching this item — use "Re-evaluate" (on the item or the RFI) to evaluate it.',
+    "es": 'Evaluación interrumpida antes de llegar a este ítem — use "Reevaluar" (en el ítem o en el RFI) para evaluarlo.',
+}
+
+
+def _justificativa_interrompido(lang: str | None = None) -> str:
+    return _JUSTIFICATIVA_INTERROMPIDO.get(lang or "pt", _JUSTIFICATIVA_INTERROMPIDO["pt"])
 
 
 def iniciar_processamento(rfi: Rfi) -> None:
@@ -47,18 +53,20 @@ def _finalizar(db, rfi_id: uuid.UUID, erro: bool = False) -> None:
         db.commit()
 
 
-def _avaliar(db, item_id: uuid.UUID, rfi_id: uuid.UUID, api_key: str | None, model: str | None) -> None:
+def _avaliar(
+    db, item_id: uuid.UUID, rfi_id: uuid.UUID, api_key: str | None, model: str | None, lang: str | None = None
+) -> None:
     try:
         item = db.get(RfiItem, item_id)
         if item is None:  # removido (documento excluído) no meio da avaliação
             return
-        avaliar_item_rfi(db, item, api_key=api_key, model=model)
+        avaliar_item_rfi(db, item, api_key=api_key, model=model, lang=lang)
     except Exception:  # noqa: BLE001 - não pode travar o lote por um item com erro
         db.rollback()
         logger.exception("Falha ao avaliar item %s do RFI %s", item_id, rfi_id)
 
 
-def _marcar_interrompidos(db, ids: list[uuid.UUID]) -> None:
+def _marcar_interrompidos(db, ids: list[uuid.UUID], lang: str | None = None) -> None:
     """Itens novos que não chegaram a ser avaliados: sem isso ficariam `veredito=null` ("processando")
     para sempre. Viram "sem evidência" com uma justificativa que explica e manda reavaliar."""
     if not ids:
@@ -66,7 +74,7 @@ def _marcar_interrompidos(db, ids: list[uuid.UUID]) -> None:
     db.query(RfiItem).filter(RfiItem.id.in_(ids), RfiItem.veredito.is_(None)).update(
         {
             RfiItem.veredito: VeredictoRfi.sem_evidencia,
-            RfiItem.justificativa: JUSTIFICATIVA_INTERROMPIDO,
+            RfiItem.justificativa: _justificativa_interrompido(lang),
             RfiItem.origem: None,
         },
         synchronize_session=False,
@@ -79,6 +87,7 @@ def processar_rfi(
     documento_ids: list[uuid.UUID],
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> None:
     """Extrai os itens dos documentos indicados (um por vez, cada um numa chamada ao Gemini -- mais \
     robusto que um prompt gigante e permite remover um documento depois sem refazer os outros) e, \
@@ -118,7 +127,7 @@ def processar_rfi(
             tentados += 1
             try:
                 pdf_bytes, texto = carregar_documento(doc)
-                extraido = extrair_itens_rfi(pdf_bytes=pdf_bytes, texto=texto, api_key=api_key, model=model)
+                extraido = extrair_itens_rfi(pdf_bytes=pdf_bytes, texto=texto, api_key=api_key, model=model, lang=lang)
             except Exception as exc:  # noqa: BLE001 - precisa capturar qualquer erro da chamada ao Gemini
                 logger.exception("Falha ao extrair itens do documento %s do RFI %s (modelo=%s)", doc_id, rfi_id, model)
                 erros.append(f"{doc.nome_arquivo}: {interpretar_erro_gemini(exc)}")
@@ -172,10 +181,10 @@ def processar_rfi(
                 if rfi is None:
                     return
                 _progresso(db, rfi, "avaliando", k, len(ids), item.codigo if item else "")
-                _avaliar(db, item_id, rfi_id, api_key, model)
+                _avaliar(db, item_id, rfi_id, api_key, model, lang)
         finally:
             if cancelado:
-                _marcar_interrompidos(db, ids)
+                _marcar_interrompidos(db, ids, lang)
             _finalizar(db, rfi_id)
     finally:
         db.close()
@@ -187,6 +196,7 @@ def reavaliar_rfi(
     api_key: str | None = None,
     model: str | None = None,
     somente_pendentes: bool = False,
+    lang: str | None = None,
 ) -> None:
     """Reavalia todos os itens do RFI. Por padrão pula os que o usuário sobrescreveu à mão
     (origem=manual) pra não perder o trabalho dele. Se interrompido, os itens que ainda não foram
@@ -213,7 +223,7 @@ def reavaliar_rfi(
                 if rfi is None:
                     return
                 _progresso(db, rfi, "reavaliando", k, len(ids), item.codigo if item else "")
-                _avaliar(db, item_id, rfi_id, api_key, model)
+                _avaliar(db, item_id, rfi_id, api_key, model, lang)
         finally:
             _finalizar(db, rfi_id)
     finally:

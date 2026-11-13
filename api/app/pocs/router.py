@@ -218,6 +218,7 @@ def criar_poc(
     escopo: str = Form(""),
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
+    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -234,7 +235,12 @@ def criar_poc(
     )
 
     background_tasks.add_task(
-        processar_poc, poc.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user)
+        processar_poc,
+        poc.id,
+        [d.id for d in criados],
+        resolve_api_key(current_user),
+        resolve_model(current_user),
+        lang=lang,
     )
 
     return _list_item(db, poc)
@@ -245,6 +251,7 @@ def importar_planejador(
     background_tasks: BackgroundTasks,
     arquivo: UploadFile | None = File(None),
     texto: str | None = Form(None),
+    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -266,6 +273,7 @@ def importar_planejador(
         resolve_api_key(current_user),
         resolve_model(current_user),
         hidratar_planejador=True,
+        lang=lang,
     )
 
     return _list_item(db, poc)
@@ -277,6 +285,7 @@ def adicionar_documentos(
     background_tasks: BackgroundTasks,
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
+    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -291,7 +300,12 @@ def adicionar_documentos(
     iniciar_processamento(poc)
     db.commit()
     background_tasks.add_task(
-        processar_poc, poc.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user)
+        processar_poc,
+        poc.id,
+        [d.id for d in criados],
+        resolve_api_key(current_user),
+        resolve_model(current_user),
+        lang=lang,
     )
     return _list_item(db, poc)
 
@@ -401,6 +415,7 @@ def excluir_poc(
 def reextrair_poc(
     poc_id: uuid.UUID,
     background_tasks: BackgroundTasks,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -429,6 +444,7 @@ def reextrair_poc(
         # antes de sugerir um, título continua vazio e o reprocessamento precisa hidratar de
         # novo (senão o título/produtos/rede do assistente nunca chegam a ser preenchidos).
         hidratar_planejador=not poc.titulo,
+        lang=lang,
     )
     return {"status": "extraindo"}
 
@@ -485,12 +501,13 @@ def _contexto_apresentacao(poc: Poc) -> str:
 @router.post("/{poc_id}/apresentacao/resumo")
 def gerar_resumo_executivo_poc(
     poc_id: uuid.UUID,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     poc = _get_poc_or_404(db, poc_id)
     texto = gerar_resumo_executivo(
-        _contexto_apresentacao(poc), api_key=resolve_api_key(current_user), model=resolve_model(current_user)
+        _contexto_apresentacao(poc), api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang
     )
     poc.resumo_executivo = texto
     db.commit()
@@ -579,11 +596,12 @@ def remover_item(poc_id: uuid.UUID, item_id: uuid.UUID, db: Session = Depends(ge
 def classificar_item_individual(
     poc_id: uuid.UUID,
     item_id: uuid.UUID,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     item = _get_item_or_404(db, poc_id, item_id)
-    classificar_item(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user))
+    classificar_item(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang)
     db.refresh(item)
     return item
 
@@ -592,6 +610,7 @@ def classificar_item_individual(
 def gerar_rascunho_item(
     poc_id: uuid.UUID,
     item_id: uuid.UUID,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -620,6 +639,7 @@ def gerar_rascunho_item(
         dono_id=current_user.id,
         api_key=resolve_api_key(current_user),
         model=resolve_model(current_user),
+        lang=lang,
     )
     db.refresh(item)
     return item
@@ -666,12 +686,13 @@ def sobrescrever_classificacao(
 def classificar_pendentes_da_poc(
     poc_id: uuid.UUID,
     background_tasks: BackgroundTasks,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _get_poc_or_404(db, poc_id)
     background_tasks.add_task(
-        classificar_pendentes, poc_id, resolve_api_key(current_user), resolve_model(current_user)
+        classificar_pendentes, poc_id, resolve_api_key(current_user), resolve_model(current_user), lang=lang
     )
     return {"status": "classificando"}
 
@@ -703,12 +724,13 @@ def criar_sessao(poc_id: uuid.UUID, payload: SessaoCreate, db: Session = Depends
 def importar_sessao(
     poc_id: uuid.UUID,
     payload: SessaoImportar,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _get_poc_or_404(db, poc_id)
     extraido = extrair_resumo_sessao(
-        payload.texto, api_key=resolve_api_key(current_user), model=resolve_model(current_user)
+        payload.texto, api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang
     )
 
     try:
@@ -774,13 +796,14 @@ def _contexto_sessao(poc: Poc, sessao: Sessao) -> str:
 def obter_resumo_sessao(
     poc_id: uuid.UUID,
     sessao_id: uuid.UUID,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     poc = _get_poc_or_404(db, poc_id)
     sessao = _get_sessao_or_404(db, poc_id, sessao_id)
     texto = gerar_resumo_email(
-        _contexto_sessao(poc, sessao), api_key=resolve_api_key(current_user), model=resolve_model(current_user)
+        _contexto_sessao(poc, sessao), api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang
     )
     return {"texto": texto}
 

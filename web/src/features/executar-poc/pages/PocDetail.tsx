@@ -84,7 +84,7 @@ function PocDocumentos({
   bloqueado: boolean;
   onMudou: () => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [enviando, setEnviando] = useState(false);
   const ocupado = enviando || bloqueado; // enquanto a PoC processa, a API recusa mudanças (409)
   const [erro, setErro] = useState<string | null>(null);
@@ -107,7 +107,7 @@ function PocDocumentos({
     const form = new FormData();
     pendentes.forEach((a) => form.append("arquivos", a));
     void executar(async () => {
-      await api.adicionarDocumentosPoc(poc.id, form);
+      await api.adicionarDocumentosPoc(poc.id, form, lang);
       setPendentes([]);
     });
   }
@@ -158,7 +158,7 @@ function PocDocumentos({
 }
 
 export function PocDetail() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [poc, setPoc] = useState<PocDetailData | null>(null);
@@ -210,7 +210,7 @@ export function PocDetail() {
     if (!id) return;
     setClassificandoLote(true);
     try {
-      await api.classificarPendentes(id);
+      await api.classificarPendentes(id, lang);
       carregar();
     } finally {
       setClassificandoLote(false);
@@ -240,7 +240,7 @@ export function PocDetail() {
     if (!id) return;
     setReextraindo(true);
     try {
-      await api.reextrairPoc(id);
+      await api.reextrairPoc(id, lang);
       carregar();
     } catch {
       setErro(t("pocDetail.erroReextrair"));
@@ -597,7 +597,7 @@ type EntradaTimeline =
   | { tipo: "nota"; created_at: string; codigo: string; texto: string };
 
 function AndamentoTab({ poc, onSessaoCriada }: { poc: PocDetailData; onSessaoCriada: (s: Sessao) => void }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const STATUS_LABEL = statusLabels(t);
   const [data, setData] = useState("");
   const [participantes, setParticipantes] = useState("");
@@ -624,7 +624,7 @@ function AndamentoTab({ poc, onSessaoCriada }: { poc: PocDetailData; onSessaoCri
     setErroImportar(null);
     setImportando(true);
     try {
-      const sessao = await api.importarSessao(poc.id, textoImportar.trim());
+      const sessao = await api.importarSessao(poc.id, textoImportar.trim(), lang);
       onSessaoCriada(sessao);
       setTextoImportar("");
     } catch {
@@ -801,7 +801,7 @@ function ApresentacaoTab({
   poc: PocDetailData;
   onResumoAtualizado: (texto: string) => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [resumo, setResumo] = useState(poc.resumo_executivo ?? "");
   const [gerando, setGerando] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -814,7 +814,7 @@ function ApresentacaoTab({
   async function gerar() {
     setGerando(true);
     try {
-      const { texto } = await api.gerarResumoExecutivo(poc.id);
+      const { texto } = await api.gerarResumoExecutivo(poc.id, lang);
       setResumo(texto);
       onResumoAtualizado(texto);
     } finally {
@@ -903,7 +903,7 @@ function SessaoCard({
   entradas: EntradaTimeline[];
   renderEntrada: (e: EntradaTimeline, i: number) => JSX.Element;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [gerando, setGerando] = useState(false);
   const [resumoEmail, setResumoEmail] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
@@ -912,7 +912,7 @@ function SessaoCard({
     setGerando(true);
     setResumoEmail(null);
     try {
-      const { texto } = await api.gerarResumoSessao(pocId, s.id);
+      const { texto } = await api.gerarResumoSessao(pocId, s.id, lang);
       setResumoEmail(texto);
     } finally {
       setGerando(false);
@@ -1204,7 +1204,7 @@ function ItemRow({
   async function reavaliar() {
     setReavaliando(true);
     try {
-      const atualizado = await api.classificarItem(pocId, item.id);
+      const atualizado = await api.classificarItem(pocId, item.id, lang);
       onAtualizado(atualizado);
       setFlagManual(atualizado.classificacao?.flag ?? "amarelo");
       setProcedimentoManual(atualizado.classificacao?.procedimento_id ?? "");
@@ -1218,7 +1218,7 @@ function ItemRow({
     setGerandoRascunho(true);
     setErroRascunho(null);
     try {
-      const atualizado = await api.gerarRascunhoItem(pocId, item.id);
+      const atualizado = await api.gerarRascunhoItem(pocId, item.id, lang);
       onAtualizado(atualizado);
     } catch (e) {
       setErroRascunho(e instanceof ApiError ? e.message : t("itemRow.erroGerarRascunho"));

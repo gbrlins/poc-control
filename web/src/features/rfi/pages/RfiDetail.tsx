@@ -155,7 +155,7 @@ export function RfiDetail() {
   async function tentarNovamente() {
     setReextraindo(true);
     try {
-      await api.reextrairRfi(rfi!.id);
+      await api.reextrairRfi(rfi!.id, lang);
       carregar();
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : t("rfiDetail.erroReextrair"));
@@ -342,7 +342,7 @@ function RfiDocumentos({
   bloqueado: boolean;
   onMudou: () => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [enviando, setEnviando] = useState(false);
   const ocupado = enviando || bloqueado; // enquanto o RFI processa, a API recusa mudanças (409)
   const [erro, setErro] = useState<string | null>(null);
@@ -368,7 +368,7 @@ function RfiDocumentos({
     const form = new FormData();
     pendentes.forEach((a) => form.append("arquivos", a));
     void executar(async () => {
-      await api.adicionarDocumentosRfi(rfi.id, form);
+      await api.adicionarDocumentosRfi(rfi.id, form, lang);
       setPendentes([]);
     });
   }
@@ -415,7 +415,7 @@ function RfiDocumentos({
           type="button"
           className="btn btn-secondary"
           disabled={ocupado || rfi.total_itens === 0}
-          onClick={() => void executar(() => api.reavaliarRfi(rfi.id, incluirManuais))}
+          onClick={() => void executar(() => api.reavaliarRfi(rfi.id, incluirManuais, lang))}
         >
           {t("rfiDetail.reavaliarTudo")}
         </button>
@@ -424,7 +424,7 @@ function RfiDocumentos({
             type="button"
             className="btn btn-secondary"
             disabled={ocupado}
-            onClick={() => void executar(() => api.reavaliarRfi(rfi.id, false, true))}
+            onClick={() => void executar(() => api.reavaliarRfi(rfi.id, false, lang, true))}
           >
             {t("rfiDetail.avaliarPendentes").replace("{n}", String(rfi.total_itens - rfi.itens_avaliados))}
           </button>
@@ -463,7 +463,7 @@ function RfiItemRow({
     setReavaliando(true);
     setErroReavaliar(null);
     try {
-      const atualizado = await api.reavaliarItemRfi(rfiId, item.id);
+      const atualizado = await api.reavaliarItemRfi(rfiId, item.id, lang);
       onAtualizado(atualizado);
       setVeredito(atualizado.veredito ?? "sem_evidencia");
       setJustificativa(atualizado.justificativa ?? "");

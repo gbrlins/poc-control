@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -130,6 +130,7 @@ def criar_rfi(
     orgao: str = Form(""),
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
+    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -155,7 +156,12 @@ def criar_rfi(
     db.refresh(rfi)
 
     background_tasks.add_task(
-        processar_rfi, rfi.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user)
+        processar_rfi,
+        rfi.id,
+        [d.id for d in criados],
+        resolve_api_key(current_user),
+        resolve_model(current_user),
+        lang=lang,
     )
     return _list_item(db, rfi)
 
@@ -178,6 +184,7 @@ def adicionar_documentos(
     background_tasks: BackgroundTasks,
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
+    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -192,7 +199,12 @@ def adicionar_documentos(
     iniciar_processamento(rfi)
     db.commit()
     background_tasks.add_task(
-        processar_rfi, rfi.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user)
+        processar_rfi,
+        rfi.id,
+        [d.id for d in criados],
+        resolve_api_key(current_user),
+        resolve_model(current_user),
+        lang=lang,
     )
     return _list_item(db, rfi)
 
@@ -201,6 +213,7 @@ def adicionar_documentos(
 def reextrair_rfi(
     rfi_id: uuid.UUID,
     background_tasks: BackgroundTasks,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -226,7 +239,12 @@ def reextrair_rfi(
     iniciar_processamento(rfi)
     db.commit()
     background_tasks.add_task(
-        processar_rfi, rfi.id, [d.id for d in pendentes], resolve_api_key(current_user), resolve_model(current_user)
+        processar_rfi,
+        rfi.id,
+        [d.id for d in pendentes],
+        resolve_api_key(current_user),
+        resolve_model(current_user),
+        lang=lang,
     )
     return _list_item(db, rfi)
 
@@ -267,6 +285,7 @@ def reavaliar_todos(
     background_tasks: BackgroundTasks,
     incluir_manuais: bool = False,
     somente_pendentes: bool = False,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -282,6 +301,7 @@ def reavaliar_todos(
         resolve_api_key(current_user),
         resolve_model(current_user),
         somente_pendentes,
+        lang=lang,
     )
     return _list_item(db, rfi)
 
@@ -315,13 +335,14 @@ def sobrescrever_veredito(
 def reavaliar_item(
     rfi_id: uuid.UUID,
     item_id: uuid.UUID,
+    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     item = _get_item_or_404(db, rfi_id, item_id)
     tinha_veredito = item.veredito is not None
     try:
-        avaliar_item_rfi(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user))
+        avaliar_item_rfi(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang)
     except Exception as exc:
         if tinha_veredito:
             # avaliar_item_rfi preserva o veredito que já existia (uma falha do Gemini não pode

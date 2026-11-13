@@ -3815,17 +3815,17 @@ function suggestFitWeb(productId, i){
 /* Rascunho guiado por IA pra um teste sem procedimento que sirva, POST /api/planner/procedure-draft
    (ver app/planner/router.py::procedure_draft). A resposta tem a MESMA forma de uma linha+detalhe de
    /api/procedimentos, então entra na biblioteca local pelos conversores que o servidor já usa
-   (serverProcClean/serverProcToLib) -- sem parser novo nenhum. Conteúdo sempre em português (regra do
-   projeto para o que a IA gera), independente do idioma da tela (L): só o título do catálogo e o
-   resultado esperado precisam ir em pt pro Gemini, nunca o que a UI mostra em en/es. */
+   (serverProcClean/serverProcToLib) -- sem parser novo nenhum. Branch v2: o conteúdo sai no idioma
+   atual da tela (L), em vez de sempre em português -- título/resultado esperado e `lang` vão juntos
+   no corpo, e o Gemini responde no mesmo idioma. */
 let draftBusy = {}, draftError = '';
 function generateProcedureDraft(productId, i){
   const t = (state.testCases[productId]||[])[i]; if(!t || draftBusy[t.id] || !connectorHas('draft')) return;
   const L = state.lang, g = (pt,en,es)=>({pt,en,es})[L] || en, pr = state.project;
   const testId = t.id, procIdAtRequest = t.procId || null;
   draftBusy[testId] = true; draftError = ''; render();
-  const body = { test:{ id:t.catalogId||t.id, product:productId, title:testTitle(t,'pt'), expected:testExpected(t,'pt') },
-    client: pr.clientOrganization || '', scope: [pr.presalesUseCase, pr.businessIssue, pr.targetInfrastructure].filter(Boolean).join(' ') };
+  const body = { test:{ id:t.catalogId||t.id, product:productId, title:testTitle(t,L), expected:testExpected(t,L) },
+    client: pr.clientOrganization || '', scope: [pr.presalesUseCase, pr.businessIssue, pr.targetInfrastructure].filter(Boolean).join(' '), lang:L };
   return connectorSend('/procedure-draft', { headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify(body) })
     .then(j=>{
       const rows = serverProcClean([j]);

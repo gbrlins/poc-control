@@ -56,7 +56,7 @@ def gemini_falso(monkeypatch):
     só chamada) -- o que importa pro teste de deslocamento é que todo documento gera fases
     numeradas a partir de 1, pra provar que o 2º documento não pisa no 1º."""
 
-    def extrair(pdf_bytes=None, texto=None, api_key=None, model=None):
+    def extrair(pdf_bytes=None, texto=None, api_key=None, model=None, lang=None):
         if texto and "QUEBRA" in texto:
             raise RuntimeError("falha simulada")
         linhas = [l for l in (texto or "").splitlines() if l.strip()]

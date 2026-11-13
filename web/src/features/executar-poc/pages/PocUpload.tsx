@@ -7,7 +7,7 @@ import { useLanguage } from "@/i18n";
 type Modo = "arquivo" | "texto";
 
 export function PocUpload() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const [titulo, setTitulo] = useState("");
   const [cliente, setCliente] = useState("");
@@ -37,7 +37,7 @@ export function PocUpload() {
       form.append("escopo", escopo);
       if (modo === "arquivo") arquivos.forEach((a) => form.append("arquivos", a));
       if (modo === "texto") form.append("texto", texto);
-      const criado = await api.criarPoc(form);
+      const criado = await api.criarPoc(form, lang);
       navigate(`/pocs/${criado.id}`);
     } catch {
       setErro(t("pocUpload.erroCriar"));

@@ -99,11 +99,12 @@ def _aplicar_extracao_gemini(
     api_key: str | None,
     model: str | None,
     hidratar_planejador: bool,
+    lang: str | None = None,
 ) -> None:
     if hidratar_planejador:
-        extraido = extrair_projeto_planejador(pdf_bytes=pdf_bytes, texto=texto, api_key=api_key, model=model)
+        extraido = extrair_projeto_planejador(pdf_bytes=pdf_bytes, texto=texto, api_key=api_key, model=model, lang=lang)
     else:
-        extraido = extrair_itens_poc(pdf_bytes=pdf_bytes, texto=texto, api_key=api_key, model=model)
+        extraido = extrair_itens_poc(pdf_bytes=pdf_bytes, texto=texto, api_key=api_key, model=model, lang=lang)
 
     base_fase = _deslocar_fases(poc, [f.model_dump() for f in extraido.fases])
 
@@ -210,12 +211,13 @@ def _processar_documento(
     api_key: str | None,
     model: str | None,
     hidratar_planejador: bool,
+    lang: str | None = None,
 ) -> None:
     planejador = itens_do_planejador(texto) if texto else None
     if planejador is not None:
         _aplicar_planejador(db, poc, documento_id, planejador)
         return
-    _aplicar_extracao_gemini(db, poc, documento_id, pdf_bytes, texto, api_key, model, hidratar_planejador)
+    _aplicar_extracao_gemini(db, poc, documento_id, pdf_bytes, texto, api_key, model, hidratar_planejador, lang)
 
 
 def processar_poc(
@@ -224,6 +226,7 @@ def processar_poc(
     api_key: str | None = None,
     model: str | None = None,
     hidratar_planejador: bool = False,
+    lang: str | None = None,
 ) -> None:
     """Extrai os itens dos documentos indicados, um por vez (cada um numa chamada ao Gemini --
     mais robusto que um prompt gigante, e permite adicionar/remover um documento depois sem
@@ -256,7 +259,7 @@ def processar_poc(
             tentados += 1
             try:
                 pdf_bytes, texto = carregar_documento(doc)
-                _processar_documento(db, poc, doc.id, pdf_bytes, texto, api_key, model, hidratar_planejador)
+                _processar_documento(db, poc, doc.id, pdf_bytes, texto, api_key, model, hidratar_planejador, lang)
                 db.commit()
             except Exception as exc:  # noqa: BLE001 - não pode travar o lote por um documento com erro
                 logger.exception("Falha ao extrair itens do documento %s da PoC %s (modelo=%s)", doc_id, poc_id, model)
@@ -283,4 +286,4 @@ def processar_poc(
     # espírito de "cada resultado aparece assim que fica pronto" em vez de depender do clique
     # manual em "Classificar pendentes" (que continua funcionando, pra reprocessar itens
     # adicionados/editados depois ou que falharam na primeira passada).
-    classificar_pendentes(poc_id, api_key=api_key, model=model)
+    classificar_pendentes(poc_id, api_key=api_key, model=model, lang=lang)

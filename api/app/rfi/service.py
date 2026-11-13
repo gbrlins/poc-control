@@ -3,10 +3,10 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.classificacao.service import (
-    JUSTIFICATIVA_HISTORICO,
     _buscar_candidatos,
     _buscar_candidatos_historico,
     atualizar_embedding_historico_rfi,
+    justificativa_historico,
 )
 from app.gemini import (
     CandidatoProcedimento,
@@ -19,9 +19,15 @@ from app.gemini import (
 )
 from app.models import OrigemClassificacao, RfiItem, VeredictoRfi
 
-JUSTIFICATIVA_ERRO = (
-    'Não foi possível avaliar este item: {erro} Use "Reavaliar" depois de resolver o problema.'
-)
+_JUSTIFICATIVA_ERRO = {
+    "pt": 'Não foi possível avaliar este item: {erro} Use "Reavaliar" depois de resolver o problema.',
+    "en": 'Could not evaluate this item: {erro} Use "Re-evaluate" after fixing the problem.',
+    "es": 'No fue posible evaluar este ítem: {erro} Use "Reevaluar" después de resolver el problema.',
+}
+
+
+def _justificativa_erro(erro: str, lang: str | None = None) -> str:
+    return _JUSTIFICATIVA_ERRO.get(lang or "pt", _JUSTIFICATIVA_ERRO["pt"]).format(erro=erro)
 
 
 def texto_item_rfi(item: RfiItem) -> str:
@@ -33,7 +39,13 @@ def texto_item_rfi(item: RfiItem) -> str:
 
 
 def _confirmar_procedimento_interno(
-    db: Session, item: RfiItem, texto: str, vetor: list[float], api_key: str | None, model: str | None
+    db: Session,
+    item: RfiItem,
+    texto: str,
+    vetor: list[float],
+    api_key: str | None,
+    model: str | None,
+    lang: str | None = None,
 ) -> tuple[uuid.UUID, str] | None:
     """Primeiro procura na base de procedimentos validados (restrita por afinidade de categoria,
     mesma lógica de app/classificacao/service.py::classificar_item) antes de ir para a web --
@@ -59,7 +71,7 @@ def _confirmar_procedimento_interno(
         )
         for c in chunks
     ]
-    confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model)
+    confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model, lang=lang)
     if not confirmacao.atende or not (0 <= confirmacao.indice_candidato < len(chunks)):
         return None
 
@@ -68,13 +80,19 @@ def _confirmar_procedimento_interno(
 
 
 def _avaliar_por_historico(
-    db: Session, item: RfiItem, texto: str, vetor: list[float], api_key: str | None, model: str | None
+    db: Session,
+    item: RfiItem,
+    texto: str,
+    vetor: list[float],
+    api_key: str | None,
+    model: str | None,
+    lang: str | None = None,
 ) -> bool:
     """Segunda fonte de evidência, depois dos procedimentos internos e antes da web: a base de
     histórico compartilhada (app/classificacao/service.py::_buscar_candidatos_historico), que
     junta itens de PoC e de RFI que já viraram evidência confirmada. Mesmo formato de confirmação
     do Gemini usado para procedimentos (confirmar_match), mas a justificativa nunca é a dele --
-    sempre o texto fixo e anônimo em JUSTIFICATIVA_HISTORICO, pra nunca vazar qual cliente/PoC/
+    sempre o texto fixo e anônimo de justificativa_historico(), pra nunca vazar qual cliente/PoC/
     edital originou o match (mesma anonimidade da ADR 1). `vetor`: ver docstring de
     _confirmar_procedimento_interno -- mesmo embedding, calculado uma vez só."""
     textos_historico = _buscar_candidatos_historico(
@@ -89,12 +107,12 @@ def _avaliar_por_historico(
         CandidatoProcedimento(titulo_procedimento="Execução/resposta anterior", heading_title="Item", content_text=t)
         for t in textos_historico
     ]
-    confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model)
+    confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model, lang=lang)
     if not confirmacao.atende or not (0 <= confirmacao.indice_candidato < len(textos_historico)):
         return False
 
     item.veredito = VeredictoRfi.atende
-    item.justificativa = JUSTIFICATIVA_HISTORICO
+    item.justificativa = justificativa_historico(lang)
     item.fontes = []
     item.procedimento_id = None
     item.confirmado_por_historico = True
@@ -112,7 +130,9 @@ def _etapa(db: Session, item: RfiItem, etapa: str | None) -> None:
     db.commit()
 
 
-def avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None = None, model: str | None = None) -> RfiItem:
+def avaliar_item_rfi(
+    db: Session, item: RfiItem, api_key: str | None = None, model: str | None = None, lang: str | None = None
+) -> RfiItem:
     # Antes de tentar: se a chamada ao Gemini falhar (sem credencial cadastrada, chave inválida,
     # quota, etc.), um item que nunca tinha sido avaliado ficava com veredito=null pra sempre --
     # o front (RfiDetail.tsx) usa exatamente esse campo pra decidir se ainda está "processando" e
@@ -121,7 +141,7 @@ def avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None = None, mod
     # antes da tentativa porque o `except` abaixo precisa saber se havia algo bom a preservar.
     veredito_antes = item.veredito
     try:
-        return _avaliar_item_rfi(db, item, api_key, model)
+        return _avaliar_item_rfi(db, item, api_key, model, lang)
     except Exception as exc:
         db.rollback()
         if veredito_antes is None:
@@ -131,7 +151,7 @@ def avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None = None, mod
             # girando pra sempre. Quem já tinha um veredito confirmado (reavaliação que falhou)
             # mantém o que já tinha: uma falha transiente não pode apagar uma resposta boa.
             item.veredito = VeredictoRfi.sem_evidencia
-            item.justificativa = JUSTIFICATIVA_ERRO.format(erro=interpretar_erro_gemini(exc))
+            item.justificativa = _justificativa_erro(interpretar_erro_gemini(exc), lang)
             item.origem = None
         item.etapa = None
         db.commit()
@@ -146,7 +166,9 @@ def avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None = None, mod
             db.rollback()
 
 
-def _avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None, model: str | None) -> RfiItem:
+def _avaliar_item_rfi(
+    db: Session, item: RfiItem, api_key: str | None, model: str | None, lang: str | None = None
+) -> RfiItem:
     """Semáforo de 4 estados do RFI, em 3 passos: procedimento interno já validado
     (_confirmar_procedimento_interno) → histórico de execuções bem-sucedidas equivalentes
     (_avaliar_por_historico) → só se nenhum dos dois confirmar, pesquisa com grounding do Google
@@ -160,7 +182,7 @@ def _avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None, model: st
     _etapa(db, item, "procedimento")
     vetor = embed_query(texto, api_key=api_key)
 
-    confirmacao_interna = _confirmar_procedimento_interno(db, item, texto, vetor, api_key, model)
+    confirmacao_interna = _confirmar_procedimento_interno(db, item, texto, vetor, api_key, model, lang)
     if confirmacao_interna is not None:
         procedimento_id, justificativa = confirmacao_interna
         item.veredito = VeredictoRfi.atende
@@ -176,7 +198,7 @@ def _avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None, model: st
         # um veredito que já foi confirmado -- fica só sem fontes complementares.
         _etapa(db, item, "web")
         try:
-            _, fontes = pesquisar_atendimento_rfi(texto, api_key=api_key, model=model)
+            _, fontes = pesquisar_atendimento_rfi(texto, api_key=api_key, model=model, lang=lang)
             item.fontes = [f.model_dump() for f in fontes]
         except Exception:  # noqa: BLE001 - complemento best-effort, não pode perder a confirmação
             item.fontes = []
@@ -186,13 +208,13 @@ def _avaliar_item_rfi(db: Session, item: RfiItem, api_key: str | None, model: st
         return item
 
     _etapa(db, item, "historico")
-    if _avaliar_por_historico(db, item, texto, vetor, api_key, model):
+    if _avaliar_por_historico(db, item, texto, vetor, api_key, model, lang):
         return item
 
     _etapa(db, item, "web")
-    texto_pesquisa, fontes = pesquisar_atendimento_rfi(texto, api_key=api_key, model=model)
+    texto_pesquisa, fontes = pesquisar_atendimento_rfi(texto, api_key=api_key, model=model, lang=lang)
     _etapa(db, item, "classificando")
-    avaliacao = classificar_atendimento_rfi(texto_pesquisa, api_key=api_key, model=model)
+    avaliacao = classificar_atendimento_rfi(texto_pesquisa, api_key=api_key, model=model, lang=lang)
 
     if avaliacao.nao_atende:
         veredito = VeredictoRfi.nao_atende

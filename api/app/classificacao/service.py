@@ -31,11 +31,32 @@ TOP_K = 5
 
 # Compartilhado entre o semáforo de PoC (classificar_item) e o RFI Analyser
 # (app/rfi/service.py::_avaliar_por_historico) -- nunca o texto de um item real, pra nunca vazar
-# qual cliente/PoC/edital originou o match (mesma anonimidade da ADR 1).
-JUSTIFICATIVA_HISTORICO = (
-    "Confirmado por execução/resposta anterior equivalente já confirmada (histórico anônimo, "
-    "sem procedimento documentado ainda)."
-)
+# qual cliente/PoC/edital originou o match (mesma anonimidade da ADR 1). Texto fixo (não gerado
+# pelo Gemini), mas ainda assim visível pro usuário -- segue o idioma da UI (branch v2) por um
+# dict próprio, não pela função _nome_idioma do gemini.py (essa serve só pra instruções de prompt).
+_JUSTIFICATIVA_HISTORICO = {
+    "pt": "Confirmado por execução/resposta anterior equivalente já confirmada (histórico anônimo, "
+    "sem procedimento documentado ainda).",
+    "en": "Confirmed by an equivalent prior execution/answer already confirmed (anonymous history, "
+    "no documented procedure yet).",
+    "es": "Confirmado por una ejecución/respuesta anterior equivalente ya confirmada (historial "
+    "anónimo, sin procedimiento documentado todavía).",
+}
+
+
+def justificativa_historico(lang: str | None = None) -> str:
+    return _JUSTIFICATIVA_HISTORICO.get(lang or "pt", _JUSTIFICATIVA_HISTORICO["pt"])
+
+
+_BAIXA_CONFIANCA = {
+    "pt": "Amarelo — baixa confiança (sem evidência de viabilidade).",
+    "en": "Yellow — low confidence (no evidence of feasibility).",
+    "es": "Amarillo — baja confianza (sin evidencia de viabilidad).",
+}
+
+
+def _baixa_confianca(lang: str | None = None) -> str:
+    return _BAIXA_CONFIANCA.get(lang or "pt", _BAIXA_CONFIANCA["pt"])
 
 
 def texto_item(item: Item) -> str:
@@ -89,7 +110,7 @@ def _buscar_candidatos_historico(
     compartilhada entre o semáforo de PoC (classificar_item) e o RFI Analyser
     (app/rfi/service.py::_avaliar_por_historico): "isto já foi confirmado antes", sem apontar qual
     cliente/PoC/edital (quem chama nunca recebe a linha original, só o texto renderizado, e a
-    justificativa fica sempre em JUSTIFICATIVA_HISTORICO). Devolve texto já pronto, não as linhas
+    justificativa fica sempre no texto fixo de justificativa_historico()). Devolve texto já pronto, não as linhas
     do banco, porque as duas tabelas têm formatos diferentes (Item x RfiItem) e cada top-k é
     buscado separadamente -- pgvector/SQLAlchemy não faz um ORDER BY por distância através de duas
     tabelas mapeadas numa query só -- e concatenado antes de ir para a confirmação do Gemini, que já
@@ -204,12 +225,15 @@ def _salvar_auto(
 
 
 def classificar_item(
-    db: Session, item: Item, api_key: str | None = None, model: str | None = None
+    db: Session, item: Item, api_key: str | None = None, model: str | None = None, lang: str | None = None
 ) -> Classificacao:
     """Semáforo, em 3 passos (mesma ordem do RFI Analyser, ver app/rfi/service.py::avaliar_item_rfi):
     busca vetorial nos procedimentos validados → confirmação pelo Gemini → histórico compartilhado
     de respostas já confirmadas (PoC ou RFI) → só se nenhum dos dois confirmar, pesquisa de
-    viabilidade na web com grounding do Google Search."""
+    viabilidade na web com grounding do Google Search.
+
+    `lang` (pt|en|es, do idioma atual da UI de quem clicou "classificar"/"reavaliar") é o idioma em
+    que a justificativa sai -- branch v2, ver app/gemini.py::_nome_idioma."""
     texto = texto_item(item)
     modelo_usado = modelo_efetivo(model)
     categorias_afinidade = [item.categoria_codigo] if item.categoria_codigo else None
@@ -228,7 +252,7 @@ def classificar_item(
             )
             for c in chunks
         ]
-        confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model)
+        confirmacao = confirmar_match(texto, candidatos, api_key=api_key, model=model, lang=lang)
         if confirmacao.atende and 0 <= confirmacao.indice_candidato < len(chunks):
             procedimento = chunks[confirmacao.indice_candidato].procedimento
             return _salvar_auto(
@@ -247,21 +271,21 @@ def classificar_item(
             CandidatoProcedimento(titulo_procedimento="Execução/resposta anterior", heading_title="Item", content_text=t)
             for t in textos_historico
         ]
-        confirmacao = confirmar_match(texto, candidatos_historico, api_key=api_key, model=model)
+        confirmacao = confirmar_match(texto, candidatos_historico, api_key=api_key, model=model, lang=lang)
         if confirmacao.atende and 0 <= confirmacao.indice_candidato < len(textos_historico):
             return _salvar_auto(
                 db,
                 item,
                 flag=FlagClassificacao.verde,
-                justificativa=JUSTIFICATIVA_HISTORICO,
+                justificativa=justificativa_historico(lang),
                 fontes=[],
                 procedimento_id=None,
                 modelo=modelo_usado,
                 confirmado_por_historico=True,
             )
 
-    texto_pesquisa, fontes = pesquisar_viabilidade_web(texto, api_key=api_key, model=model)
-    avaliacao = classificar_viabilidade(texto_pesquisa, api_key=api_key, model=model)
+    texto_pesquisa, fontes = pesquisar_viabilidade_web(texto, api_key=api_key, model=model, lang=lang)
+    avaliacao = classificar_viabilidade(texto_pesquisa, api_key=api_key, model=model, lang=lang)
     fontes_dump = [f.model_dump() for f in fontes]
 
     if avaliacao.nao_suportado:
@@ -272,7 +296,7 @@ def classificar_item(
         justificativa = avaliacao.justificativa
     else:
         flag = FlagClassificacao.amarelo
-        justificativa = f"Amarelo — baixa confiança (sem evidência de viabilidade). {avaliacao.justificativa}".strip()
+        justificativa = f"{_baixa_confianca(lang)} {avaliacao.justificativa}".strip()
 
     return _salvar_auto(
         db, item, flag=flag, justificativa=justificativa, fontes=fontes_dump, procedimento_id=None, modelo=modelo_usado
@@ -299,6 +323,7 @@ def gerar_rascunho_procedimento(
     dono_id: uuid.UUID,
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> Procedimento:
     """Rascunho de procedimento guiado pra um item amarelo sem nenhum procedimento validado (ver
     app/pocs/router.py::gerar_rascunho_item) -- pesquisa com grounding + geração estruturada do
@@ -306,12 +331,19 @@ def gerar_rascunho_procedimento(
     reaproveitando _criar_procedimento (chunking + embedding + tradução) pra criar como
     `status=rascunho`. Fica deliberadamente invisível pra _buscar_candidatos (que só olha
     status=validado) até o usuário confirmar que executou com sucesso e chamar
-    POST /api/procedimentos/{id}/validar -- a IA nunca se autoconfirma."""
+    POST /api/procedimentos/{id}/validar -- a IA nunca se autoconfirma.
+
+    `lang`: idioma da UI de quem clicou "Gerar rascunho guiado com IA" -- o rascunho (título + HTML)
+    sai nesse idioma (branch v2), em vez de sempre em português."""
     texto = texto_item(item)
     contexto_produto = _contexto_produto_poc(item.poc)
 
-    pesquisa_texto, fontes = pesquisar_implementacao_item(texto, contexto_produto, api_key=api_key, model=model)
-    rascunho = gerar_procedimento_guiado(texto, contexto_produto, pesquisa_texto, fontes, api_key=api_key, model=model)
+    pesquisa_texto, fontes = pesquisar_implementacao_item(
+        texto, contexto_produto, api_key=api_key, model=model, lang=lang
+    )
+    rascunho = gerar_procedimento_guiado(
+        texto, contexto_produto, pesquisa_texto, fontes, api_key=api_key, model=model, lang=lang
+    )
 
     procedimento = _criar_procedimento(
         db,

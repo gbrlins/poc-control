@@ -7,7 +7,7 @@ import { useLanguage } from "@/i18n";
 type Modo = "arquivo" | "texto";
 
 export function RfiUpload() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const [titulo, setTitulo] = useState("");
   const [orgao, setOrgao] = useState("");
@@ -35,7 +35,7 @@ export function RfiUpload() {
       form.append("orgao", orgao);
       if (modo === "arquivo") arquivos.forEach((a) => form.append("arquivos", a));
       if (modo === "texto") form.append("texto", texto);
-      const criado = await api.criarRfi(form);
+      const criado = await api.criarRfi(form, lang);
       navigate(`/rfis/${criado.id}`);
     } catch {
       setErro(t("rfiUpload.erroCriar"));

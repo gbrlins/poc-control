@@ -170,6 +170,14 @@ class TraducaoProcedimento(BaseModel):
 
 _IDIOMAS_SITE = {"pt": "português (pt-BR)", "en": "inglês", "es": "espanhol"}
 
+
+def _nome_idioma(lang: str | None) -> str:
+    """Nome (em português, pra caber nas instruções abaixo, todas escritas em português) do
+    idioma em que o Gemini deve responder -- "pt"|"en"|"es", com fallback pra português pra
+    qualquer valor desconhecido. Branch v2: todo conteúdo gerado por IA segue o idioma da UI no
+    momento da chamada, em vez de sempre sair em português (ver CLAUDE.md)."""
+    return _IDIOMAS_SITE.get(lang or "pt", _IDIOMAS_SITE["pt"])
+
 _TRADUCAO_PROMPT = """\
 Você traduz o título e o HTML de um procedimento técnico (runbook de PoC) para outro idioma, preservando a estrutura.
 
@@ -301,7 +309,7 @@ correspondente (senão string vazia -- não force um código pra item que não s
 - prerequisitos: pré-requisitos técnicos mencionados no documento (hardware, rede, acessos, software, \
 times envolvidos) como título curto + descrição. Lista vazia se o documento não tratar disso.
 
-Responda só com os dados pedidos, em português, sem inventar itens que não tenham base no documento.
+Responda só com os dados pedidos, em {idioma_resposta}, sem inventar itens que não tenham base no documento.
 """.replace("{categorias}", descricoes_formatadas())
 
 
@@ -363,6 +371,7 @@ def extrair_itens_poc(
     texto: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> ExtracaoPoc:
     if pdf_bytes:
         conteudo: list = [types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")]
@@ -370,7 +379,7 @@ def extrair_itens_poc(
         conteudo = [texto]
     else:
         raise ValueError("Informe pdf_bytes ou texto")
-    conteudo.append(_EXTRACAO_PROMPT)
+    conteudo.append(_EXTRACAO_PROMPT.replace("{idioma_resposta}", _nome_idioma(lang)))
 
     response = _gerar_com_retry(
         api_key=api_key,
@@ -435,6 +444,7 @@ def extrair_projeto_planejador(
     texto: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> ExtracaoProjetoPlanejador:
     if pdf_bytes:
         conteudo: list = [types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")]
@@ -442,7 +452,7 @@ def extrair_projeto_planejador(
         conteudo = [texto]
     else:
         raise ValueError("Informe pdf_bytes ou texto")
-    conteudo.append(_EXTRACAO_PROMPT + _HIDRATACAO_PROMPT)
+    conteudo.append((_EXTRACAO_PROMPT + _HIDRATACAO_PROMPT).replace("{idioma_resposta}", _nome_idioma(lang)))
 
     response = _gerar_com_retry(
         api_key=api_key,
@@ -508,7 +518,7 @@ Também devolva:
   vazia.
 - numero_processo_sugerido: número do processo/edital/pregão, se identificável; senão string vazia.
 
-Responda em português, sem inventar itens que não tenham base no documento. Se nenhum requisito do \
+Responda em {idioma_resposta}, sem inventar itens que não tenham base no documento. Se nenhum requisito do \
 documento se encaixar nas áreas acima, devolva uma lista de itens vazia.
 """.replace("{categorias}", descricoes_formatadas())
 
@@ -518,6 +528,7 @@ def extrair_itens_rfi(
     texto: str | None = None,
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> ExtracaoRfi:
     if pdf_bytes:
         conteudo: list = [types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf")]
@@ -525,7 +536,7 @@ def extrair_itens_rfi(
         conteudo = [texto]
     else:
         raise ValueError("Informe pdf_bytes ou texto")
-    conteudo.append(_EXTRACAO_RFI_PROMPT)
+    conteudo.append(_EXTRACAO_RFI_PROMPT.replace("{idioma_resposta}", _nome_idioma(lang)))
 
     response = _gerar_com_retry(
         api_key=api_key,
@@ -571,7 +582,7 @@ Responda:
 - atende: true se algum dos candidatos realmente cobre o que o item pede (não basta ser parecido no \
 assunto, o passo a passo tem que resolver o item).
 - indice_candidato: o número do candidato escolhido (começando em 0), ou -1 se nenhum atende.
-- justificativa: 1-2 frases curtas, em português, explicando a decisão.
+- justificativa: 1-2 frases curtas, em {idioma}, explicando a decisão.
 """
 
 
@@ -580,6 +591,7 @@ def confirmar_match(
     candidatos: list[CandidatoProcedimento],
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> ConfirmacaoMatch:
     candidatos_texto = "\n\n".join(
         f"[{i}] Procedimento \"{c.titulo_procedimento}\" — seção \"{c.heading_title}\":\n{c.content_text}"
@@ -589,7 +601,7 @@ def confirmar_match(
         api_key=api_key,
         contexto="confirmar_match",
         model=model or _TEXT_MODEL,
-        contents=_CONFIRMACAO_PROMPT.format(item=item_texto, candidatos=candidatos_texto),
+        contents=_CONFIRMACAO_PROMPT.format(item=item_texto, candidatos=candidatos_texto, idioma=_nome_idioma(lang)),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ConfirmacaoMatch,
@@ -608,7 +620,7 @@ class FonteEvidencia(BaseModel):
 
 _VIABILIDADE_PROMPT = """\
 Pesquise na web se o item de PoC abaixo é viável/suportado ou se há evidência explícita de que NÃO é \
-suportado. Responda em português, de forma objetiva, citando o que a pesquisa encontrou.
+suportado. Responda em {idioma}, de forma objetiva, citando o que a pesquisa encontrou.
 
 Item da PoC:
 \"\"\"
@@ -618,13 +630,13 @@ Item da PoC:
 
 
 def pesquisar_viabilidade_web(
-    item_texto: str, api_key: str | None = None, model: str | None = None
+    item_texto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
 ) -> tuple[str, list[FonteEvidencia]]:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="pesquisar_viabilidade_web",
         model=model or _TEXT_MODEL,
-        contents=_VIABILIDADE_PROMPT.format(item=item_texto),
+        contents=_VIABILIDADE_PROMPT.format(item=item_texto, idioma=_nome_idioma(lang)),
         config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]),
     )
     texto = response.text or ""
@@ -658,18 +670,20 @@ Responda:
 - nao_suportado: true SÓ se o resultado trouxer evidência explícita de que não é suportado/não é viável.
 - evidencia_viavel: true se o resultado trouxer evidência de que é viável (ainda que não seja prova \
 definitiva).
-- justificativa: 1-2 frases curtas, em português, resumindo a evidência (ou a falta dela).
+- justificativa: 1-2 frases curtas, em {idioma}, resumindo a evidência (ou a falta dela).
 """
 
 
 def classificar_viabilidade(
-    texto_pesquisa: str, api_key: str | None = None, model: str | None = None
+    texto_pesquisa: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
 ) -> AvaliacaoViabilidade:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="classificar_viabilidade",
         model=model or _TEXT_MODEL,
-        contents=_AVALIACAO_PROMPT.format(pesquisa=texto_pesquisa or "(a pesquisa não retornou texto)"),
+        contents=_AVALIACAO_PROMPT.format(
+            pesquisa=texto_pesquisa or "(a pesquisa não retornou texto)", idioma=_nome_idioma(lang)
+        ),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=AvaliacaoViabilidade,
@@ -697,14 +711,18 @@ Contexto do produto/ambiente desta PoC:
 {contexto}
 \"\"\"
 
-Responda em português, resumindo os passos encontrados, comandos/configurações relevantes e como \
+Responda em {idioma}, resumindo os passos encontrados, comandos/configurações relevantes e como \
 validar que cada etapa funcionou. Se a pesquisa não encontrar nada específico pra esta versão, diga \
 isso explicitamente em vez de generalizar.
 """
 
 
 def pesquisar_implementacao_item(
-    item_texto: str, contexto_produto: str, api_key: str | None = None, model: str | None = None
+    item_texto: str,
+    contexto_produto: str,
+    api_key: str | None = None,
+    model: str | None = None,
+    lang: str | None = None,
 ) -> tuple[str, list[FonteEvidencia]]:
     """Mesma mecânica de pesquisar_viabilidade_web (grounding com Google Search, sem
     response_schema -- limitação documentada no topo deste módulo), mas pedindo o "como fazer"
@@ -714,7 +732,7 @@ def pesquisar_implementacao_item(
         contexto="pesquisar_implementacao_item",
         model=model or _TEXT_MODEL,
         contents=_IMPLEMENTACAO_PROMPT.format(
-            item=item_texto, contexto=contexto_produto or "(sem contexto adicional)"
+            item=item_texto, contexto=contexto_produto or "(sem contexto adicional)", idioma=_nome_idioma(lang)
         ),
         config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]),
     )
@@ -755,7 +773,7 @@ Resultado da pesquisa (documentação/procedimentos já publicados):
 {pesquisa}
 \"\"\"
 
-Escreva o procedimento em HTML, em português, seguindo ESTRITAMENTE esta estrutura (mesma \
+Escreva o procedimento em HTML, em {idioma}, seguindo ESTRITAMENTE esta estrutura (mesma \
 convenção dos procedimentos validados já existentes na base):
 - Um <h2> de objetivo/contexto no início, explicando o que será feito e por quê.
 - Passos numerados, cada um num <h2> ou <h3> próprio (ex.: "Passo 1: ..."), com os comandos/\
@@ -786,6 +804,7 @@ def gerar_procedimento_guiado(
     fontes: list[FonteEvidencia],
     api_key: str | None = None,
     model: str | None = None,
+    lang: str | None = None,
 ) -> RascunhoProcedimento:
     """Segunda chamada do par (classificacao/service.py::gerar_rascunho_procedimento): gera o
     HTML estruturado a partir da pesquisa já feita por pesquisar_implementacao_item -- sem
@@ -800,6 +819,7 @@ def gerar_procedimento_guiado(
             item=item_texto,
             contexto=contexto_produto or "(sem contexto adicional)",
             pesquisa=f"{pesquisa_texto or '(a pesquisa não retornou texto)'}\n\nFontes:\n{fontes_texto}",
+            idioma=_nome_idioma(lang),
         ),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -817,7 +837,7 @@ Pesquise na web (documentação oficial da SUSE, Rancher, release notes, compara
 fontes confiáveis) se alguma solução do portfólio SUSE (SUSE Linux Enterprise Server, Rancher Prime, \
 SUSE Virtualization/Harvester, SUSE Storage/Longhorn, SUSE Security/NeuVector, SUSE Observability, \
 SUSE Multi-Linux Manager, SUSE Private Registry, SUSE Application Collection) atende o requisito \
-técnico de edital abaixo. Responda em português, de forma objetiva, citando o que a pesquisa \
+técnico de edital abaixo. Responda em {idioma}, de forma objetiva, citando o que a pesquisa \
 encontrou sobre cada produto SUSE relevante para este requisito específico.
 
 Requisito do edital:
@@ -828,13 +848,13 @@ Requisito do edital:
 
 
 def pesquisar_atendimento_rfi(
-    item_texto: str, api_key: str | None = None, model: str | None = None
+    item_texto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
 ) -> tuple[str, list[FonteEvidencia]]:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="pesquisar_atendimento_rfi",
         model=model or _TEXT_MODEL,
-        contents=_ATENDIMENTO_RFI_PROMPT.format(item=item_texto),
+        contents=_ATENDIMENTO_RFI_PROMPT.format(item=item_texto, idioma=_nome_idioma(lang)),
         config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]),
     )
     texto = response.text or ""
@@ -874,20 +894,20 @@ requisito integralmente, sem ressalvas relevantes. Nunca marque isso junto com n
 - atende_parcialmente: true se o resultado trouxer evidência de atendimento incompleto, com \
 ressalvas, ou que depende de configuração/produto adicional não óbvio. Nunca marque isso junto com \
 atende_totalmente.
-- justificativa: 1-2 frases curtas, em português, resumindo a evidência encontrada (ou a falta dela \
+- justificativa: 1-2 frases curtas, em {idioma}, resumindo a evidência encontrada (ou a falta dela \
 e, nesse caso, deixe nao_atende, atende_totalmente e atende_parcialmente todos como false).
 """
 
 
 def classificar_atendimento_rfi(
-    texto_pesquisa: str, api_key: str | None = None, model: str | None = None
+    texto_pesquisa: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
 ) -> AvaliacaoAtendimentoRfi:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="classificar_atendimento_rfi",
         model=model or _TEXT_MODEL,
         contents=_AVALIACAO_ATENDIMENTO_RFI_PROMPT.format(
-            pesquisa=texto_pesquisa or "(a pesquisa não retornou texto)"
+            pesquisa=texto_pesquisa or "(a pesquisa não retornou texto)", idioma=_nome_idioma(lang)
         ),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -924,19 +944,19 @@ Extraia:
 - pontos_falha: lista curta dos pontos que falharam, ficaram bloqueados ou têm alguma pendência.
 - proximos_passos: lista curta das próximas ações combinadas.
 
-Responda em português, com frases curtas e objetivas em cada item das listas. Não invente informação que \
+Responda em {idioma}, com frases curtas e objetivas em cada item das listas. Não invente informação que \
 não esteja no texto; se uma lista não se aplicar, devolva lista vazia.
 """
 
 
 def extrair_resumo_sessao(
-    texto: str, api_key: str | None = None, model: str | None = None
+    texto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
 ) -> ResumoSessaoExtraido:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="extrair_resumo_sessao",
         model=model or _TEXT_MODEL,
-        contents=_RESUMO_SESSAO_PROMPT.format(texto=texto),
+        contents=_RESUMO_SESSAO_PROMPT.format(texto=texto, idioma=_nome_idioma(lang)),
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ResumoSessaoExtraido,
@@ -957,7 +977,7 @@ Contexto da sessão:
 {contexto}
 \"\"\"
 
-Escreva um texto em português, tom formal e neutro, pronto para colar num e-mail, estruturado em:
+Escreva um texto em {idioma}, tom formal e neutro, pronto para colar num e-mail, estruturado em:
 - Um parágrafo breve de abertura mencionando a data da sessão.
 - "Hoje realizamos": o que foi feito, testado ou resolvido.
 - "Pendências": o que ficou com falha, bloqueado ou pendente (omita esta seção se não houver nada).
@@ -968,12 +988,14 @@ Não invente informação que não esteja no contexto. Não assine o e-mail nem 
 """
 
 
-def gerar_resumo_email(contexto: str, api_key: str | None = None, model: str | None = None) -> str:
+def gerar_resumo_email(
+    contexto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
+) -> str:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="gerar_resumo_email",
         model=model or _TEXT_MODEL,
-        contents=_RESUMO_EMAIL_PROMPT.format(contexto=contexto),
+        contents=_RESUMO_EMAIL_PROMPT.format(contexto=contexto, idioma=_nome_idioma(lang)),
     )
     return response.text or ""
 
@@ -987,7 +1009,7 @@ Status consolidado:
 {contexto}
 \"\"\"
 
-Escreva um texto em português, tom formal e direto, adequado para abrir uma apresentação ao cliente \
+Escreva um texto em {idioma}, tom formal e direto, adequado para abrir uma apresentação ao cliente \
 (3 a 5 parágrafos curtos), cobrindo:
 - Visão geral do que foi avaliado nesta PoC e o percentual concluído.
 - Principais conquistas e pontos validados com sucesso.
@@ -1000,11 +1022,13 @@ como "[Seu nome]".
 """
 
 
-def gerar_resumo_executivo(contexto: str, api_key: str | None = None, model: str | None = None) -> str:
+def gerar_resumo_executivo(
+    contexto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
+) -> str:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="gerar_resumo_executivo",
         model=model or _TEXT_MODEL,
-        contents=_RESUMO_EXECUTIVO_PROMPT.format(contexto=contexto),
+        contents=_RESUMO_EXECUTIVO_PROMPT.format(contexto=contexto, idioma=_nome_idioma(lang)),
     )
     return response.text or ""

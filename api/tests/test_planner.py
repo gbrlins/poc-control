@@ -140,8 +140,8 @@ def test_procedure_draft_contrato(monkeypatch):
 
     chamado = {}
 
-    def falso(db, titulo, esperado, produto, cliente, escopo, dono_id, api_key, model):
-        chamado.update(titulo=titulo, esperado=esperado, produto=produto, cliente=cliente, escopo=escopo)
+    def falso(db, titulo, esperado, produto, cliente, escopo, dono_id, api_key, model, lang):
+        chamado.update(titulo=titulo, esperado=esperado, produto=produto, cliente=cliente, escopo=escopo, lang=lang)
         return Procedimento(
             id=uuid.uuid4(), titulo="Criar VM no Harvester (rascunho)", titulo_en="Create VM on Harvester (draft)",
             tags=["virtualization"], cliente_origem=cliente or None, status=StatusProcedimento.rascunho,
@@ -162,7 +162,7 @@ def test_procedure_draft_contrato(monkeypatch):
     assert j["idioma_original"] == "pt" and j["titulo_en"] == "Create VM on Harvester (draft)"
     assert chamado == {
         "titulo": "Criar VM", "esperado": "VM criada", "produto": "virtualization",
-        "cliente": "Acme", "escopo": "Substituição de VMware",
+        "cliente": "Acme", "escopo": "Substituição de VMware", "lang": "pt",
     }
 
 

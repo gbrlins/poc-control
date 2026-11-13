@@ -137,6 +137,7 @@ class ProcedureDraftIn(BaseModel):
     test: TesteAderencia
     client: str = Field(default="", max_length=200)
     scope: str = Field(default="", max_length=2000)
+    lang: str = "pt"
 
 
 class ProcedureDraftOut(BaseModel):
@@ -152,10 +153,10 @@ class ProcedureDraftOut(BaseModel):
     versao: int
     data_origem: date | None
     html_original: str
-    # Idioma detectado do html_original (sempre "pt" na prática -- a geração é forçada em
-    # português, ver _RASCUNHO_PROMPT em app/gemini.py). O planejador usa isso (serverProcToLib,
-    # campo langOriginal) pra saber quando precisa buscar uma tradução ao mudar o idioma da tela
-    # em vez de assumir que html_original já está no idioma certo.
+    # Idioma detectado do html_original -- branch v2: a geração sai no idioma da tela no momento do
+    # clique (`payload.lang`, ver _RASCUNHO_PROMPT em app/gemini.py), não mais sempre em português.
+    # O planejador usa isso (serverProcToLib, campo langOriginal) pra saber quando precisa buscar
+    # uma tradução ao mudar o idioma da tela em vez de assumir que html_original já está certo.
     idioma_original: str | None
 
 
@@ -185,6 +186,7 @@ def procedure_draft(
             current_user.id,
             resolve_api_key(current_user),
             resolve_model(current_user),
+            payload.lang,
         )
     except Exception as exc:  # noqa: BLE001 - qualquer erro da chamada ao Gemini vira 502 com mensagem acionável
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, interpretar_erro_gemini(exc))
