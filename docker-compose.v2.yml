@@ -1,0 +1,64 @@
+# Isolated v2 stack: separate project name, ports, images and Postgres volume so it can run
+# alongside the production stack (docker-compose.yml) without sharing any state.
+#
+# Usage (see docs/v2-stack.md for the full walkthrough):
+#   cp .env.example .env.v2   # then edit .env.v2
+#   docker compose -f docker-compose.v2.yml --env-file .env.v2 -p poc-control-v2 up -d --build
+services:
+  db:
+    image: docker.io/pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Create .env.v2 from .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create .env.v2 from .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?Create .env.v2 from .env.example}
+    volumes:
+      - pgdata_v2:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    image: poc-control:api-v2
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Create .env.v2 from .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Create .env.v2 from .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?Create .env.v2 from .env.example}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?Create .env.v2 from .env.example}
+      SESSION_SECRET: ${SESSION_SECRET:?Create .env.v2 from .env.example}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      SYNC_SERVIDOR_URL: ${SYNC_SERVIDOR_URL:-}
+      SYNC_SERVIDOR_EMAIL: ${SYNC_SERVIDOR_EMAIL:-}
+      SYNC_SERVIDOR_SENHA: ${SYNC_SERVIDOR_SENHA:-}
+    volumes:
+      - ./seed:/app/seed:ro,Z
+      - ./uploads_v2:/app/uploads:Z
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT_V2:-8093}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: poc-control:web-v2
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT_V2:-8092}:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata_v2:

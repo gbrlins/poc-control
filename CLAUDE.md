@@ -31,6 +31,15 @@ só em pt-BR. **Única exceção**: a exibição de um Procedimento acompanha es
 automática do HTML, ver "Tradução de exibição" em "Procedimentos" abaixo) -- os formulários onde ele é
 cadastrado/editado continuam em pt-BR, só o conteúdo final mostrado é que muda de idioma.
 
+> **Branch `v2` (regra de idioma sobrescrita):** nesta branch -- isolada em stack própria, ver
+> `docs/v2-stack.md`, sem deploy e sem merge na `main` até Gabriel validar -- o parágrafo acima NÃO
+> vale. A regra aqui é: tudo (casca, formulários de domínio do Executar PoC/RFI, e todo conteúdo
+> gerado por IA -- títulos/descrições extraídos, justificativas de classificação, justificativas de
+> RFI, rascunhos de procedimento, resumos de sessão) acompanha dinamicamente o idioma selecionado no
+> seletor pt/en/es existente, no momento da geração/visualização. Ver o plano de implementação
+> original para o detalhamento completo por item. O resto deste arquivo descreve a arquitetura da
+> `main`; onde a `v2` diverge, o código e os comentários no próprio código são a fonte de verdade.
+
 ## Repositório e ambiente
 
 - Git: `https://github.com/FlavioFGM/suse-poc-toolkit.git`, folder `poc-control/` (own history preserved from the former `gbrlins/poc-control.git`). Se `gbrlins/poc-control` ganhar commits novos direto por lá, ver `poc-control/docs/sincronizar-gbrlins-poc-control.md` para o passo a passo de trazê-los pra cá sem perder histórico.
