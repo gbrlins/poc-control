@@ -572,6 +572,21 @@ const DOC_STORAGE = 'https://documentation.suse.com/cloudnative/storage/latest/e
 const DOC_MLM = 'https://documentation.suse.com/multi-linux-manager/5.1/en/docs/';
 const DOC_OBS = 'https://documentation.suse.com/cloudnative/suse-observability/latest/en/';
 const DOC_SEC = 'https://documentation.suse.com/cloudnative/security/5.6/en/';
+/* 3.7: base documentation link shown next to each standard/native catalog test (testRow()) --
+   the product's doc index, not a fabricated deep link to the exact section, since the catalog's
+   `guide` section numbers (e.g. "§8.1") don't have a reliable, verified URL anchor to point at.
+   registry/appcollection have no catalog tests today, so no entry is needed for them here. */
+function testDocBase(productId){
+  switch(productId){
+    case 'virtualization': return docVirt();
+    case 'rancher': return DOC_RANCHER;
+    case 'storage': return DOC_STORAGE;
+    case 'manager': return DOC_MLM;
+    case 'observability': return DOC_OBS;
+    case 'security': return DOC_SEC;
+    default: return '';
+  }
+}
 
 function eibProfiles(){ const sp=state.selectedProducts, o=[]; if(sp.rancher) o.push(1); if(sp.security||sp.storage||sp.registry) o.push(2); if(sp.observability) o.push(3); return o; }
 const EIB_PROFILE_NAME = { 1:'1 — Rancher', 2:'2 — Essencial (Longhorn + NeuVector + Harbor)', 3:'3 — Observability' };
@@ -2950,9 +2965,13 @@ function ensureTestCases(){
   let changed = false;
   PRODUCTS.forEach(p=>{
     if(!sp[p.id]) return;
+    // Every selected product gets a (possibly empty) list, even with no catalog items (e.g.
+    // registry/appcollection today) -- 3.7/4.1's "Additional items" tab needs a card to add a
+    // custom test to for ANY selected product, not just the ones the native catalog covers.
+    if(!state.testCases[p.id]){ state.testCases[p.id] = []; changed = true; }
     const items = TEST_CATALOG.filter(it=>it.product===p.id);
     if(!items.length) return;
-    const list = state.testCases[p.id] || (state.testCases[p.id] = []);
+    const list = state.testCases[p.id];
     items.forEach(it=>{
       if(!testApplies(it) || list.some(t=>t.catalogId===it.id) || state.testDismissed.indexOf(it.id)>=0) return;
       list.push({ id:uid(), catalogId:it.id, result:'pending', priority:it.tier, fit:it.unverified?'validate':'native', led:'', owner:'', evidence:'', notes:'' });
@@ -2970,11 +2989,24 @@ function testRow(p, x, L, g){
   const stMeta = TEST_STATUS[t.result] || TEST_STATUS.pending, cur = TEST_STATUS[t.result] ? t.result : 'pending';
   const sel = (key, html, extra) => '<select class="t-compact" style="'+(extra||'')+'" onchange="P.setTestField(\''+p.id+'\','+i+',\''+key+'\',this.value,true)">'+html+'</select>';
   const lab = (txt, ctl) => '<div><label class="field-label" style="margin-bottom:3px;">'+txt+'</label>'+ctl+'</div>';
+  // 3.7/4.1: a standard/native item is always treated as already validated by the official docs
+  // (guide pill links to the product's doc index, when known); a non-standard/additional one
+  // keeps the "Non-standard / AI-suggested" flag until its own linked procedure is validated.
+  const docBase = it ? testDocBase(p.id) : '';
+  const guidePill = it && it.guide ? (docBase
+    ? '<a class="pill pill-off" href="'+esc(docBase)+'" target="_blank" rel="noopener noreferrer" style="text-decoration:none;" title="'+g('Abrir a documentação oficial','Open the official documentation','Abrir la documentación oficial')+'">'+esc(it.guide)+'</a>'
+    : '<span class="pill pill-off">'+esc(it.guide)+'</span>') : '';
+  const proc = !it && t.procId ? loadLibrary().find(q=>q.id===t.procId) : null;
+  const nonStandardPill = !it
+    ? (proc && proc.status==='validado'
+        ? '<span class="pill pill-ok">'+g('validado','validated','validado')+'</span>'
+        : '<span class="pill" style="background:var(--blue-500);color:#fff;">'+g('Não padrão / sugerido por IA','Non-standard / AI-suggested','No estándar / sugerido por IA')+'</span>')
+    : '';
   return '<div class="checklist-item mt-2" style="flex-direction:column;align-items:stretch;gap:6px;border-left:4px solid '+stMeta.color+';'+(counts?'':'opacity:.55;')+'">'
     + '<div class="flex items-center gap-2 flex-wrap">'
       + '<button class="pill '+(prio==='must'?'pill-warn':'pill-off')+'" style="border:none;cursor:pointer;" title="'+g('Clique para alternar','Click to toggle','Haga clic para alternar')+'" onclick="P.setTestField(\''+p.id+'\','+i+',\'priority\',\''+(prio==='must'?'nice':'must')+'\',true)">'+(prio==='must'?'must-have':'nice-to-have')+'</button>'
-      + (it ? '<span style="flex:1;font-size:13px;font-weight:700;min-width:200px;">'+esc(it.t[L]||it.t.en)+'</span>'+(it.guide?'<span class="pill pill-off">'+esc(it.guide)+'</span>':'')+(it.unverified?'<span class="pill pill-warn">'+g('não confirmado','unverified','no confirmado')+'</span>':'')
-            : '<input type="text" value="'+esc(t.text)+'" placeholder="'+g('Descreva o teste...','Describe the test...','Describa la prueba...')+'" style="flex:1;min-width:200px;border:none;background:transparent;font-size:13px;font-weight:600;padding:4px 2px;outline:none;" oninput="P.setTestText(\''+p.id+'\','+i+',this.value)"><span class="pill" style="background:var(--blue-500);color:#fff;">'+g('Específico desta PoC','Specific to this PoC','Específico de esta PoC')+'</span>')
+      + (it ? '<span style="flex:1;font-size:13px;font-weight:700;min-width:200px;">'+esc(it.t[L]||it.t.en)+'</span>'+guidePill+(it.unverified?'<span class="pill pill-warn">'+g('não confirmado','unverified','no confirmado')+'</span>':'')
+            : '<input type="text" value="'+esc(t.text)+'" placeholder="'+g('Descreva o teste...','Describe the test...','Describa la prueba...')+'" style="flex:1;min-width:200px;border:none;background:transparent;font-size:13px;font-weight:600;padding:4px 2px;outline:none;" oninput="P.setTestText(\''+p.id+'\','+i+',this.value)">'+nonStandardPill)
       + (counts ? '' : '<span class="pill pill-off">N/A</span>')
       + '<span style="cursor:pointer;color:var(--red-500);font-weight:800;padding:0 4px;" onclick="P.removeTest(\''+p.id+'\','+i+')" title="'+g('Remover','Remove','Eliminar')+'">✕</span>'
     + '</div>'
@@ -3019,18 +3051,34 @@ function testSourcesText(sp, g){
   parts.push(g('Clique em must-have/nice-to-have para reclassificar; itens que dependem de Rancher, proxy, air-gap ou de mais de um nó só aparecem quando se aplicam.','Click must-have/nice-to-have to reclassify; items that depend on Rancher, a proxy, air-gap or more than one node only appear when they apply.','Haga clic en must-have/nice-to-have para reclasificar; los ítems que dependen de Rancher, proxy, air-gap o más de un nodo solo aparecen cuando aplican.'));
   return parts.join(' ');
 }
+/* 3.7/4.1: two tabs instead of two separate wizard screens -- lower-risk than restructuring
+   ensureTestCases()/state shape, same end result (pick from the native/documented catalog first,
+   add client-specific items separately). "Standard" = catalogId set (native item, documented,
+   always considered already validated by the official docs); "Additional" = no catalogId
+   (free text, non-standard until its linked procedure is actually validated). */
+let testKindTab = 'standard';
+function testIsStandard(t){ return !!testItem(t); }
 function renderTestsView(){
   ensureTestCases();
   const L=state.lang; const g=(pt,en,es)=>({pt,en,es})[L] || en;
   const sp = state.selectedProducts;
-  const active = PRODUCTS.filter(p=>sp[p.id] && state.testCases[p.id]);
-  if(!active.length) return '<div class="card"><div class="alert alert-info">'+Icon('info')+' '+g('Selecione produtos na etapa anterior.','Select products in a previous step.','Seleccione productos en la etapa anterior.')+'</div></div>';
+  const allSelected = PRODUCTS.filter(p=>sp[p.id] && state.testCases[p.id]);
+  if(!allSelected.length) return '<div class="card"><div class="alert alert-info">'+Icon('info')+' '+g('Selecione produtos na etapa anterior.','Select products in a previous step.','Seleccione productos en la etapa anterior.')+'</div></div>';
+  const kind = testKindTab==='additional' ? 'additional' : 'standard';
+  let stdCount=0, addCount=0;
+  allSelected.forEach(p=>orderedTests(p.id).forEach(x=>{ if(testIsStandard(x.t)) stdCount++; else addCount++; }));
+  const active = kind==='standard' ? allSelected.filter(p=>orderedTests(p.id).some(x=>testIsStandard(x.t))) : allSelected;
+  const tabsHtml = '<div class="card no-print" style="padding:10px 14px;"><div class="flex gap-2 flex-wrap">'
+    + '<button class="btn btn-sm '+(kind==='standard'?'btn-primary':'btn-outline')+'" onclick="P.setTestKindTab(\'standard\')">'+g('Itens padrão','Standard items','Ítems estándar')+' ('+stdCount+')</button>'
+    + '<button class="btn btn-sm '+(kind==='additional'?'btn-primary':'btn-outline')+'" onclick="P.setTestKindTab(\'additional\')">'+g('Itens adicionais','Additional items','Ítems adicionales')+' ('+addCount+')</button>'
+  + '</div></div>';
+  if(kind==='standard' && !active.length) return tabsHtml + '<div class="card"><div class="alert alert-info">'+Icon('info')+' '+g('Nenhum item padrão no catálogo para os produtos selecionados.','No standard item in the catalog for the selected products.','Ningún ítem estándar en el catálogo para los productos seleccionados.')+'</div></div>';
   const st = testStats(sp), filtersOn = testFiltersActive();
   const cov = (b) => b.pass+'/'+b.total;
   const chip = (cls, key, label, n) => '<button class="pill '+cls+'" style="border:none;cursor:pointer;" title="'+g('Filtrar por este status','Filter by this status','Filtrar por este estado')+'" onclick="P.setTestFilterAndRender(\'status\',\''+(testFilters.status===key?'':key)+'\')">'+label+' · '+n+'</button>';
   let total = 0, shown = 0;
   const cards = active.map(p=>{
-    const all = orderedTests(p.id), list = all.filter(x=>testMatchesFilter(x.t));
+    const all = orderedTests(p.id).filter(x=>(testIsStandard(x.t)?'standard':'additional')===kind), list = all.filter(x=>testMatchesFilter(x.t));
     total += all.length; shown += list.length;
     if(filtersOn && !list.length) return '';   // com filtro, não mostra produto sem resultado
     const done = all.filter(x=>!testIsOpen(x.t)).length;
@@ -3043,10 +3091,10 @@ function renderTestsView(){
     return '<div class="card">'
       + '<div class="flex justify-between items-center flex-wrap gap-2"><h3 style="font-weight:900;font-size:14px;display:flex;align-items:center;gap:8px;margin:0;"><span class="badge-dot" style="background:'+p.color+'"></span>'+p.name+'</h3>'
       + '<div class="flex items-center gap-2">'
-        + '<span class="text-xs text-muted">'+(filtersOn ? list.length+' '+g('de','of','de')+' '+all.length+' '+g('exibidos','shown','mostrados') : done+' '+g('de','of','de')+' '+all.length+' '+g('concluídos','completed','completados'))+'</span>'
-        + '<button class="btn btn-primary btn-sm" onclick="P.addTest(\''+p.id+'\')">' + Icon('plus') + ' ' + g('Adicionar teste específico','Add specific test','Agregar prueba específica') + '</button>'
+        + (all.length ? '<span class="text-xs text-muted">'+(filtersOn ? list.length+' '+g('de','of','de')+' '+all.length+' '+g('exibidos','shown','mostrados') : done+' '+g('de','of','de')+' '+all.length+' '+g('concluídos','completed','completados'))+'</span>' : '')
+        + (kind==='additional' ? '<button class="btn btn-primary btn-sm" onclick="P.addTest(\''+p.id+'\')">' + Icon('plus') + ' ' + g('Adicionar teste específico','Add specific test','Agregar prueba específica') + '</button>' : '')
       + '</div></div>'
-      + (body || '<p class="text-xs text-muted mt-2">' + g('Nenhum teste ainda.','No tests yet.','Ninguna prueba todavía.') + '</p>')
+      + (body || '<p class="text-xs text-muted mt-2">' + (kind==='additional' ? g('Nenhum item adicional ainda. Use o botão acima.','No additional item yet. Use the button above.','Ningún ítem adicional todavía. Use el botón de arriba.') : g('Nenhum teste ainda.','No tests yet.','Ninguna prueba todavía.')) + '</p>')
     + '</div>';
   }).join('');
   const head = '<div class="card"><div class="flex gap-2 flex-wrap items-center">'
@@ -3060,7 +3108,7 @@ function renderTestsView(){
       + '<button class="btn btn-primary btn-sm" '+(dayTests().length?'':'disabled ')+'onclick="P.printDay()">' + Icon('print') + ' ' + g('Imprimir roteiro do dia','Print day script','Imprimir guion del día') + '</button></div>'
     + historyBarHtml(g)
     + '<p class="text-xs text-muted mt-2">' + testSourcesText(sp, g) + '</p></div>';
-  return head + renderTestFilters(g, L, shown, total)
+  return head + tabsHtml + renderTestFilters(g, L, shown, total)
     + (cards || '<div class="card"><div class="alert alert-info">'+Icon('info')+' '+g('Nenhum teste corresponde aos filtros.','No tests match the filters.','Ninguna prueba coincide con los filtros.')+'</div></div>');
 }
 
@@ -4318,6 +4366,7 @@ window.P = {
   setTestResult(productId,i,result){ if(!TEST_STATUS[result]) return; state.testCases[productId][i].result=result; saveState(); render(); },
   setTestFilter(key,value){ syncTestFilters(); if(key in testFilters){ testFilters[key]=String(value||''); saveTestFilters(); } },
   setTestFilterAndRender(key,value){ this.setTestFilter(key,value); render(); },
+  setTestKindTab(value){ testKindTab = value==='additional' ? 'additional' : 'standard'; render(); },
   clearTestFilters(){ syncTestFilters(); testFilters = { status:'', fit:'', led:'', owner:'', prio:'' }; saveTestFilters(); render(); },
   togglePort(key){ state.ports.checked[key] = !state.ports.checked[key]; saveState(); render(); },
   newProject(){
