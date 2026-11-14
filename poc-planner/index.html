@@ -952,7 +952,12 @@ function testMatchesFilter(t){
 // with more than one `group` value (the rest already rendered flat, having just 'general'), and
 // both got the same complaint -- so no sub-headings for any product, full stop. The underlying
 // `group` field on each TEST_CATALOG entry is left alone; nothing else reads it.
-function testHasGroups(productId){ return false; }
+/* 3.4: re-enabled -- only worth a sub-header when the product's own catalog actually spans more
+   than one group (a single-group product would just repeat the same header once, for nothing). */
+function testHasGroups(productId){
+  const groups = new Set(TEST_CATALOG.filter(t=>t.product===productId).map(t=>t.group));
+  return groups.size > 1;
+}
 function orderedTests(productId){
   const list=(state.testCases[productId]||[]).map((t,i)=>({t,i}));
   const ord=(x)=>x.t.catalogId && TEST_BY_ID[x.t.catalogId] ? TEST_BY_ID[x.t.catalogId].order : 1e6+x.i;
@@ -976,7 +981,7 @@ function defaultState(){
     selectedProducts:{ virtualization:true, rancher:true, security:false, storage:false, observability:false, registry:false, appcollection:false, manager:false },
     infra:{
       virtualization:{ nodeCount:3, cpuCores:VIRT_SIZING.sug.cpu, ramGb:VIRT_SIZING.sug.ram, diskGb:VIRT_SIZING.sug.disk, diskType:'SSD' },
-      rancher:{ vmSize:Object.assign({},EIB_SIZING[1].sug) },
+      rancher:{ nodeCount:1, vmSize:Object.assign({},EIB_SIZING[1].sug) },
       observability:{ vmSize:Object.assign({},EIB_SIZING[3].sug) },
       manager:{ nodeCount:1, cpuCores:MLM_SIZING.sug.cpu, ramGb:MLM_SIZING.sug.ram, diskGb:MLM_SIZING.sug.disk, clientProducts:[] },
       addons:{ vmSize:Object.assign({},EIB_SIZING[2].sug) }
@@ -1180,8 +1185,13 @@ function setView(v){ state.view = v; if(WIZARD_STEPS.indexOf(v)>=0) state.lastSt
 function go(view){ procPicker = null; setView(view); saveState(); render(); window.scrollTo(0,0); if(view==='summary') checkExecutionLink(); if(view==='library') serverProcsLoad(); }
 
 /* ---------------- WIZARD STRUCTURE ---------------- */
-const WIZARD_STEPS = ['project','products','infra','network','credentials','ports','tests','install','summary'];
-const STEP_ICON = {project:'doc',products:'box',infra:'server',network:'network',credentials:'key',ports:'shield',install:'checksq',tests:'activity',summary:'book'};
+/* 'ports' was its own wizard step; the checklist now lives only in summaryPortsSection(), still
+   editable there (the old renderPortsView()/renderHostsCard() markup was merged into it and
+   removed). A saved project whose lastStep was 'ports' falls back to 'project' on resume
+   (WIZARD_STEPS.indexOf returns -1), same safe fallback the dashboard already had for any
+   unrecognized step. */
+const WIZARD_STEPS = ['project','products','infra','network','credentials','tests','install','summary'];
+const STEP_ICON = {project:'doc',products:'box',infra:'server',network:'network',credentials:'key',install:'checksq',tests:'activity',summary:'book'};
 
 function renderShell(){
   const isDashboard = state.view === 'dashboard' || state.view === 'library' || state.view === 'import';
@@ -1291,7 +1301,7 @@ function renderWizardNav(){
 
 const STEP_RESET_KEYS = {
   project:['project','installApproach'], products:['selectedProducts'], infra:['infra','virtInstall'], network:['network','virtNet'],
-  credentials:['credentials'], ports:['ports'], tests:['testCases','testResults','testDismissed'], install:['installProgress','installDates','installNotes']
+  credentials:['credentials'], tests:['testCases','testResults','testDismissed'], install:['installProgress','installDates','installNotes']
 };
 function renderFooterBar(){
   const idx = WIZARD_STEPS.indexOf(state.view);
@@ -1321,7 +1331,6 @@ function renderView(){
     case 'infra': return renderInfraView();
     case 'network': return renderNetworkView();
     case 'credentials': return renderCredentialsView();
-    case 'ports': return renderPortsView();
     case 'install': return renderInstallView();
     case 'tests': return renderTestsView();
     case 'summary': return renderSummaryView();
@@ -2306,14 +2315,20 @@ function renderInfraView(){
   }
 
   if(sp.rancher){
+    const rancherNodes = state.infra.rancher.nodeCount===3 ? 3 : 1;
     out += '<div class="card">'
       + '<h2 class="section-title mb-3">' + Icon('cloud') + ' Rancher Prime</h2>'
       + '<p class="text-xs text-muted mb-2">' + g('Dimensionamento da VM do Rancher — ajuste conforme necessário.','Rancher VM sizing — adjust as needed.','Dimensionamiento de la VM de Rancher — ajuste según sea necesario.') + '</p>'
       + '<div class="grid grid-3">'
+        + '<div><label class="field-label">'+g('Nós do cluster local do Rancher','Rancher local cluster nodes','Nodos del clúster local de Rancher')+'</label><select onchange="P.setFieldAndRender(\'infra.rancher.nodeCount\', Number(this.value))">'
+          + '<option value="1"'+(rancherNodes===1?' selected':'')+'>'+g('Nó único (1)','Single node (1)','Nodo único (1)')+'</option>'
+          + '<option value="3"'+(rancherNodes===3?' selected':'')+'>'+g('HA (3 nós)','HA (3 nodes)','HA (3 nodos)')+'</option>'
+        + '</select></div>'
         + field('vCPU','infra.rancher.vmSize.cpu',{type:'number',liveRender:true})
         + field('RAM (GB)','infra.rancher.vmSize.ram',{type:'number',liveRender:true})
         + field(g('Disco (GB)','Disk (GB)','Disco (GB)'),'infra.rancher.vmSize.disk',{type:'number',liveRender:true})
       + '</div>'
+      + (rancherNodes===3 && !state.network.hasLoadBalancer ? '<div class="alert alert-warn mt-2">'+Icon('alert')+' '+g('HA (3 nós) sem Load Balancer configurado: configure um na etapa Rede, ou o acesso ao Rancher não tem failover entre os nós.','HA (3 nodes) without a Load Balancer configured: set one up in the Network step, or access to Rancher has no failover between nodes.','HA (3 nodos) sin Load Balancer configurado: configure uno en la etapa Red, o el acceso a Rancher no tiene failover entre los nodos.')+'</div>' : '')
       + eibSizingHint(1, state.infra.rancher.vmSize, g)
     + '</div>';
   }
@@ -2377,7 +2392,13 @@ function rebuildVms(){
   const sp = state.selectedProducts;
   const desired = [];
   if(sp.virtualization){ for(let i=0;i<state.infra.virtualization.nodeCount;i++) desired.push({key:'virtualization-'+i,product:'virtualization',role:i<3?'Management/HCI':'Worker HCI',defaultUser:'rancher'}); }
-  if(sp.rancher){ desired.push({key:'rancher-vm',product:'rancher',role:'Rancher Server',defaultUser:'opensuse'}); }
+  if(sp.rancher){
+    /* 'rancher-vm' is the original, single-node key -- kept as node 0 even in HA so existing
+       saved projects (single node, pre-3.2) keep their VM's hostname/IP/user/password instead of
+       losing them to a renumbered key on their next render. */
+    const rn = state.infra.rancher.nodeCount===3 ? 3 : 1;
+    for(let i=0;i<rn;i++) desired.push({key:i===0?'rancher-vm':'rancher-'+i, product:'rancher', role: rn>1 ? 'Rancher Server '+(i+1)+'/'+rn : 'Rancher Server', defaultUser:'opensuse'});
+  }
   if(sp.observability){ desired.push({key:'observability-vm',product:'observability',role:'Observability',defaultUser:'opensuse'}); }
   if(sp.manager){ for(let i=0;i<state.infra.manager.nodeCount;i++) desired.push({key:'manager-'+i,product:'manager',role:'Multi-Linux Manager Server',defaultUser:'root'}); }
   { const addonIds=['security','storage','registry','appcollection'].filter(id=>sp[id]); if(addonIds.length){ desired.push({key:'addons-vm',product:'addons',role:'Downstream cluster ('+addonIds.filter(id=>id!=='appcollection').join(', ')+(addonIds.indexOf('appcollection')>=0 ? (addonIds.length>1?' · ':'')+'pulls from Application Collection' : '')+')',defaultUser:'opensuse'}); } }
@@ -2745,33 +2766,6 @@ function renderCredentialsView(){
   + credGroup(g('Notas','Notes','Notas'), '#94a3b8', field(g('Notas adicionais','Additional notes','Notas adicionales'),'credentials.notes',{type:'textarea',rows:3}));
 }
 
-/* ---------------- PORTS / FIREWALL ---------------- */
-function renderPortsView(){
-  const L=state.lang; const g=(pt,en,es)=>({pt,en,es})[L] || en;
-  const sp = state.selectedProducts;
-  const active = PRODUCTS.filter(p=>sp[p.id] && PORT_REQUIREMENTS[p.id]);
-  return active.map(p=>{
-    const rows = PORT_REQUIREMENTS[p.id];
-    return '<div class="card">'
-      + '<h3 style="font-weight:900;font-size:14px;display:flex;align-items:center;gap:8px;"><span class="badge-dot" style="background:'+p.color+'"></span>'+p.name+'</h3>'
-      + '<table class="data-table mt-2"><thead><tr><th>' + g('Porta','Port','Puerto') + '</th><th>Proto</th><th>' + g('Serviço','Service','Servicio') + '</th><th>' + g('Descrição','Description','Descripción') + '</th><th></th></tr></thead><tbody>'
-      + rows.map((r,i)=>{ const key=p.id+'-'+i; const checked=!!state.ports.checked[key];
-          return '<tr><td class="mono">'+r.port+'</td><td>'+r.proto+'</td><td>'+r.service+(r.unverified?' <span class="pill pill-warn">'+g('não confirmado','unverified','no confirmado')+'</span>':'')+'</td><td class="text-xs">'+(r.desc[L]||r.desc.en)+'</td>'
-          + '<td><input type="checkbox" '+(checked?'checked':'')+' onchange="P.togglePort(\''+key+'\')" style="width:16px;height:16px;accent-color:var(--suse-base);"></td></tr>';
-        }).join('') + '</tbody></table>'
-      + (portSources(p.id).length ? '<p class="text-xs text-muted mt-2">'+g('Fonte','Source','Fuente')+': '+portSources(p.id).map(x=>'<a href="'+esc(x[1])+'" target="_blank">'+esc(x[0])+'</a>').join(' · ')+'</p>' : '')
-      + (p.id==='storage'||p.id==='security'||p.id==='virtualization' ? '<p class="text-xs text-muted">'+g('Portas entre os próprios nós só passam por um firewall se houver um entre eles; num cluster de 1 nó não há o que liberar.','Ports between the nodes themselves only cross a firewall if one sits between them; on a 1-node cluster there is nothing to open.','Los puertos entre los propios nodos solo cruzan un firewall si hay uno entre ellos; en un clúster de 1 nodo no hay nada que habilitar.')+'</p>' : '')
-    + '</div>';
-  }).join('') + renderHostsCard(L,g);
-}
-function renderHostsCard(L,g){
-  const t=hostsTableHtml(L,g,true), pr=hostsProgress();
-  return '<div class="card"><h3 style="font-weight:900;font-size:14px;">'+g('Hosts e URLs que precisam de saída (firewall / proxy)','Hosts and URLs that need outbound access (firewall / proxy)','Hosts y URLs que necesitan salida (firewall / proxy)')+'</h3>'
-    + '<p class="text-xs text-muted mt-1">'+g('Muda com a abordagem de instalação, o proxy e o air-gap do projeto. Mesma lista do urls-required.md, por produto.','Changes with the project install approach, proxy and air-gap. The same list as urls-required.md, per product.','Cambia con el enfoque de instalación, el proxy y el air-gap del proyecto. La misma lista de urls-required.md, por producto.')+'</p>'
-    + hostsNotesHtml(L,g) + (t ? '<p class="text-xs mt-2"><span class="pill '+(pr.d===pr.t?'pill-ok':'pill-warn')+'">'+pr.d+' / '+pr.t+' '+g('liberados','opened','habilitados')+'</span></p>'+t : '<p class="text-xs text-muted mt-2">'+g('Nenhum host externo para a seleção atual.','No external host for the current selection.','Ningún host externo para la selección actual.')+'</p>')
-    + '</div>';
-}
-
 /* ---------------- ARCHITECTURE DIAGRAM ----------------
    SVG em camadas, claro e com texto escuro (imprime bem em branco): serviços externos, switch,
    redes (mgmt / VLANs de VM / storage), hosts e cargas. `archModel` só junta os dados já
@@ -2817,7 +2811,7 @@ function archModel(L){
   const lb = (sp.rancher && n.hasLoadBalancer) ? ' · LB :443' : '';
   {
     const vm=(id,line1,line2)=>m.guests.push({ title:prod(id).name, color:prod(id).color, line1:line1, line2:line2||'' });
-    if(sp.rancher){ const s=state.infra.rancher.vmSize; vm('rancher', s.cpu+' vCPU · '+s.ram+' GB · '+s.disk+' GB', lb.replace(' · ','')); }
+    if(sp.rancher){ const s=state.infra.rancher.vmSize, rn=state.infra.rancher.nodeCount===3?3:1; vm('rancher', (rn>1?rn+'x · ':'')+s.cpu+' vCPU · '+s.ram+' GB · '+s.disk+' GB', lb.replace(' · ','')); }
     if(sp.observability){ const s=state.infra.observability.vmSize; vm('observability', s.cpu+' vCPU · '+s.ram+' GB · '+s.disk+' GB'); }
     const addIds=['security','storage','registry'].filter(id=>sp[id]);
     if(addIds.length){ const s=state.infra.addons.vmSize; m.guests.push({ title:g('Cluster downstream','Downstream cluster','Clúster downstream'), color:'#9333ea', line1:s.cpu+' vCPU · '+s.ram+' GB · '+s.disk+' GB', line2:addIds.map(id=>prod(id).name.replace('SUSE ','')).join(' · ') }); }
@@ -3047,10 +3041,12 @@ function renderTestsView(){
       body += testRow(p, x, L, g);
     });
     return '<div class="card">'
-      + '<div class="flex justify-between items-center"><h3 style="font-weight:900;font-size:14px;display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span class="badge-dot" style="background:'+p.color+'"></span>'+p.name+'</h3>'
-      + '<span class="text-xs text-muted">'+(filtersOn ? list.length+' '+g('de','of','de')+' '+all.length+' '+g('exibidos','shown','mostrados') : done+' '+g('de','of','de')+' '+all.length+' '+g('concluídos','completed','completados'))+'</span></div>'
+      + '<div class="flex justify-between items-center flex-wrap gap-2"><h3 style="font-weight:900;font-size:14px;display:flex;align-items:center;gap:8px;margin:0;"><span class="badge-dot" style="background:'+p.color+'"></span>'+p.name+'</h3>'
+      + '<div class="flex items-center gap-2">'
+        + '<span class="text-xs text-muted">'+(filtersOn ? list.length+' '+g('de','of','de')+' '+all.length+' '+g('exibidos','shown','mostrados') : done+' '+g('de','of','de')+' '+all.length+' '+g('concluídos','completed','completados'))+'</span>'
+        + '<button class="btn btn-primary btn-sm" onclick="P.addTest(\''+p.id+'\')">' + Icon('plus') + ' ' + g('Adicionar teste específico','Add specific test','Agregar prueba específica') + '</button>'
+      + '</div></div>'
       + (body || '<p class="text-xs text-muted mt-2">' + g('Nenhum teste ainda.','No tests yet.','Ninguna prueba todavía.') + '</p>')
-      + '<button class="btn btn-outline btn-sm mt-3" onclick="P.addTest(\''+p.id+'\')">' + Icon('plus') + ' ' + g('Adicionar teste específico','Add specific test','Agregar prueba específica') + '</button>'
     + '</div>';
   }).join('');
   const head = '<div class="card"><div class="flex gap-2 flex-wrap items-center">'
@@ -3107,8 +3103,8 @@ function summaryInfraSection(L,g,sp){
   }
   const eibNote = (profile, vm) => { const st = eibSizingStatus(profile, vm); return st.status==='gap' ? ' — '+g('abaixo do mínimo recomendado','below the recommended minimum','por debajo del mínimo recomendado') : st.status==='confirm' ? ' — '+g('abaixo do recomendado','below recommended','por debajo de lo recomendado') : ''; };
   if(sp.rancher){
-    const i=state.infra.rancher;
-    rows += summaryProductBlock('rancher', eibSizingText({cpu:i.vmSize.cpu,ram:i.vmSize.ram,disk:i.vmSize.disk},g)+eibNote(1,i.vmSize));
+    const i=state.infra.rancher, rn=i.nodeCount===3?3:1;
+    rows += summaryProductBlock('rancher', (rn>1?rn+' '+g('nós','nodes','nodos')+' (HA) · ':'')+eibSizingText({cpu:i.vmSize.cpu,ram:i.vmSize.ram,disk:i.vmSize.disk},g)+eibNote(1,i.vmSize));
   }
   if(sp.observability){
     const i=state.infra.observability;
@@ -3401,6 +3397,9 @@ function summaryNetworkSection(L,g){
 }
 
 function summaryPortsSection(L,g,sp){
+  // 3.3: the checklist moved here from its own wizard step and stays editable (same checkboxes
+  // and per-product detail renderPortsView()/renderHostsCard() used mid-wizard before, now merged
+  // into the single place it appears) instead of read-only.
   const active = PRODUCTS.filter(p=>sp[p.id] && PORT_REQUIREMENTS[p.id]);
   if(!active.length && !netHosts().length) return '<p class="text-xs text-muted">—</p>';
   let total=0, done=0;
@@ -3409,11 +3408,18 @@ function summaryPortsSection(L,g,sp){
     rows.forEach((r,i)=>{ total++; if(state.ports.checked[p.id+'-'+i]) done++; });
     return '<div class="mt-3"><div class="text-xs" style="font-weight:800;color:var(--ink);display:flex;align-items:center;gap:6px;"><span class="badge-dot" style="background:'+p.color+'"></span>'+p.name+'</div>'
       + '<table class="data-table mt-1"><thead><tr><th>'+g('Porta','Port','Puerto')+'</th><th>Proto</th><th>'+g('Serviço','Service','Servicio')+'</th><th>'+g('Descrição','Description','Descripción')+'</th><th>'+g('Liberada','Open','Habilitada')+'</th></tr></thead><tbody>'
-      + rows.map((r,i)=>'<tr><td class="mono">'+r.port+'</td><td>'+r.proto+'</td><td>'+r.service+'</td><td class="text-xs">'+(r.desc[L]||r.desc.en)+'</td><td>'+(state.ports.checked[p.id+'-'+i]?'<span class="pill pill-ok">✓</span>':'<span class="pill pill-off">—</span>')+'</td></tr>').join('')
-      + '</tbody></table></div>';
+      + rows.map((r,i)=>{ const key=p.id+'-'+i, checked=!!state.ports.checked[key];
+          return '<tr><td class="mono">'+r.port+'</td><td>'+r.proto+'</td><td>'+r.service+(r.unverified?' <span class="pill pill-warn">'+g('não confirmado','unverified','no confirmado')+'</span>':'')+'</td><td class="text-xs">'+(r.desc[L]||r.desc.en)+'</td>'
+          + '<td><input type="checkbox" '+(checked?'checked':'')+' onchange="P.togglePort(\''+key+'\')" style="width:16px;height:16px;accent-color:var(--suse-base);"></td></tr>'; }).join('')
+      + '</tbody></table>'
+      + (portSources(p.id).length ? '<p class="text-xs text-muted mt-1">'+g('Fonte','Source','Fuente')+': '+portSources(p.id).map(x=>'<a href="'+esc(x[1])+'" target="_blank">'+esc(x[0])+'</a>').join(' · ')+'</p>' : '')
+      + (p.id==='storage'||p.id==='security'||p.id==='virtualization' ? '<p class="text-xs text-muted">'+g('Portas entre os próprios nós só passam por um firewall se houver um entre eles; num cluster de 1 nó não há o que liberar.','Ports between the nodes themselves only cross a firewall if one sits between them; on a 1-node cluster there is nothing to open.','Los puertos entre los propios nodos solo cruzan un firewall si hay uno entre ellos; en un clúster de 1 nodo no hay nada que habilitar.')+'</p>' : '')
+    + '</div>';
   }).join('');
   const hp=hostsProgress(); total+=hp.t; done+=hp.d;
-  const hostsHtml = hp.t ? '<div class="mt-3"><div class="text-xs" style="font-weight:800;color:var(--ink);display:flex;align-items:center;gap:6px;"><span class="badge-dot" style="background:var(--gray-400)"></span>'+g('Hosts e URLs com saída liberada','Hosts and URLs with outbound access','Hosts y URLs con salida habilitada')+'</div>'+hostsTableHtml(L,g,false)+'</div>' : '';
+  const hostsHtml = hp.t || hostsNotesHtml(L,g)
+    ? '<div class="mt-3"><div class="text-xs" style="font-weight:800;color:var(--ink);display:flex;align-items:center;gap:6px;"><span class="badge-dot" style="background:var(--gray-400)"></span>'+g('Hosts e URLs que precisam de saída (firewall / proxy)','Hosts and URLs that need outbound access (firewall / proxy)','Hosts y URLs que necesitan salida (firewall / proxy)')+'</div>'+hostsNotesHtml(L,g)+hostsTableHtml(L,g,true)+'</div>'
+    : '';
   return '<div class="flex gap-2 flex-wrap"><span class="pill '+(done===total?'pill-ok':'pill-warn')+'">'+done+' / '+total+' '+g('regras liberadas','rules opened','reglas habilitadas')+'</span></div>' + body + hostsHtml;
 }
 
