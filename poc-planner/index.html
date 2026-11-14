@@ -3623,7 +3623,7 @@ function renderSummaryView(){
    Tudo o que volta é tratado como hostil: lista de chaves permitidas, ids conferidos contra o catálogo
    do próprio planner, nada de credenciais, e só entra no projeto depois da tela de revisão (R7). */
 const CONNECTOR_BASE = '/api/planner';
-const CONNECTOR_FEATURES = ['hydrate','feasibility','procedures','execution','history','draft'];
+const CONNECTOR_FEATURES = ['hydrate','procedures','execution','history','draft'];
 let connector = { status:'off', features:[] };
 let connectorIO = (typeof fetch==='function') ? (url,opts)=>fetch(url,opts) : null;   // trocável nos testes
 function connectorEligible(){ return !!connectorIO && typeof location!=='undefined' && (location.protocol==='http:' || location.protocol==='https:'); }
@@ -3779,38 +3779,9 @@ function hydrationApply(items, accepted){
   return { applied: ok.length - skipped, skipped };
 }
 
-/* --- Aderência sugerida por pesquisa na web: contrato {kind:'suse-poc-feasibility', schema:1, results:[{id, fit, rationale, sources}]} --- */
-function feasibilityClean(resp){
-  if(!isPlainObject(resp) || resp.kind!=='suse-poc-feasibility' || resp.schema!==1 || !Array.isArray(resp.results)) return null;
-  const out = {};
-  resp.results.slice(0,100).forEach(r=>{
-    if(!isPlainObject(r) || typeof r.id!=='string' || !TEST_FIT[r.fit]) return;
-    const sources = (Array.isArray(r.sources) ? r.sources : []).slice(0,5).map(s=>{
-      const url = isPlainObject(s) && typeof s.url==='string' ? s.url.trim() : '';
-      return /^https?:\/\/[^\s"'<>]+$/i.test(url) && url.length<=500 ? { title:hydText(s.title,150)||url, url } : null;
-    }).filter(Boolean);
-    out[r.id] = { fit:r.fit, rationale:hydText(r.rationale,600), sources, source:'web' };
-  });
-  return out;
-}
 function testByCaseId(id){
   for(const pid in state.testCases){ const i = (state.testCases[pid]||[]).findIndex(t=>t.id===id); if(i>=0) return state.testCases[pid][i]; }
   return null;
-}
-let fitBusy = {}, fitError = '';
-function suggestFitWeb(productId, i){
-  const t = (state.testCases[productId]||[])[i]; if(!t || fitBusy[t.id] || !connectorHas('feasibility')) return;
-  const L = state.lang, g = (pt,en,es)=>({pt,en,es})[L] || en;
-  fitBusy[t.id] = true; fitError = ''; render();
-  const body = { lang:L, fits:Object.keys(TEST_FIT), tests:[{ id:t.id, product:productId, title:testTitle(t,L), expected:testExpected(t,L) }] };
-  return connectorSend('/feasibility', { headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify(body) })
-    .then(j=>{
-      const r = feasibilityClean(j), cur = testByCaseId(t.id);
-      if(!r || !r[t.id]) throw { code:'shape' };
-      if(cur){ cur.fitSuggestion = r[t.id]; saveState(); }
-    })
-    .catch(e=>{ fitError = e && e.code==='shape' ? g('Resposta do servidor em formato inesperado.','Unexpected server response.','Respuesta del servidor con formato inesperado.') : connectorErrorText(e,g); })
-    .then(()=>{ delete fitBusy[t.id]; render(); });
 }
 /* Rascunho guiado por IA pra um teste sem procedimento que sirva, POST /api/planner/procedure-draft
    (ver app/planner/router.py::procedure_draft). A resposta tem a MESMA forma de uma linha+detalhe de
@@ -3855,11 +3826,8 @@ function generateProcedureDraft(productId, i){
     .then(()=>{ delete draftBusy[testId]; render(); });
 }
 function fitSuggestionHtml(p, i, t, g, L){
-  const s = t.fitSuggestion, busy = !!fitBusy[t.id];
-  if(!s && !connectorHas('feasibility')) return fitSourcePill(t.fitSource,g) ? '<div class="text-xs text-muted">'+fitSourcePill(t.fitSource,g)+'</div>' : '';
-  if(!s) return '<div class="flex items-center gap-2 flex-wrap text-xs">'
-    + fitSourcePill(t.fitSource,g)
-    + '<button class="btn btn-ghost btn-sm" '+(busy?'disabled ':'')+'onclick="P.fitSuggest(\''+p.id+'\','+i+')">'+Icon('activity')+' '+(busy ? g('Pesquisando…','Researching…','Investigando…') : g('Sugerir aderência (pesquisa na web)','Suggest fit (web research)','Sugerir adherencia (búsqueda web)'))+'</button></div>';
+  const s = t.fitSuggestion;
+  if(!s) return fitSourcePill(t.fitSource,g) ? '<div class="text-xs text-muted">'+fitSourcePill(t.fitSource,g)+'</div>' : '';
   const hist = s.source==='history';
   return '<div class="alert alert-info" style="margin:0;"><div class="text-xs"><b>'+(hist ? g('Sugestão do histórico, não confirmada: ','Suggestion from history, unconfirmed: ','Sugerencia del historial, sin confirmar: ') : g('Sugestão externa, não confirmada: ','External suggestion, unconfirmed: ','Sugerencia externa, sin confirmar: '))+esc(testMapLabel(TEST_FIT,s.fit,L))+'</b>'
     + (hist ? ' — '+Number(s.successes)+' '+g('de','of','de')+' '+Number(s.runs)+' '+g('execuções anteriores sem problemas','earlier runs without problems','ejecuciones anteriores sin problemas') : '')
@@ -4336,7 +4304,6 @@ window.P = {
   impSend: importSend,
   impToggle(key){ importFlow.accepted[key] = !importFlow.accepted[key]; render(); },
   impCommit: importCommit,
-  fitSuggest(pid,i){ suggestFitWeb(pid,i); },
   fitHistory(){ suggestFitHistory(); },
   fitAccept(pid,i){ const t=(state.testCases[pid]||[])[i]; if(!t || !t.fitSuggestion || !TEST_FIT[t.fitSuggestion.fit]) return; t.fit=t.fitSuggestion.fit; t.fitSource=t.fitSuggestion.source==='history' ? 'history' : 'web'; delete t.fitSuggestion; saveState(); render(); },
   fitDismiss(pid,i){ const t=(state.testCases[pid]||[])[i]; if(!t) return; delete t.fitSuggestion; saveState(); render(); },

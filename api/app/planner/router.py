@@ -13,10 +13,8 @@ from app.gemini import interpretar_erro_gemini
 from app.gemini_key import resolve_api_key, resolve_model
 from app.models import User
 from app.planner.service import (
-    LIMITE_TESTES_ADERENCIA,
     extrair_hidratacao,
     gerar_rascunho_planner,
-    sugerir_aderencia,
     validar_catalogo,
 )
 from app.pocs.planilha_import import texto_de_planilha
@@ -37,7 +35,7 @@ def capabilities():
     return {
         "kind": "poc-control",
         "schema": 1,
-        "features": ["hydrate", "feasibility", "procedures", "execution", "history", "draft"],
+        "features": ["hydrate", "procedures", "execution", "history", "draft"],
     }
 
 
@@ -96,26 +94,6 @@ class TesteAderencia(BaseModel):
     product: str = Field(default="", max_length=40)
     title: str = Field(max_length=300)
     expected: str = Field(default="", max_length=600)
-
-
-class AderenciaIn(BaseModel):
-    lang: str = "pt"
-    fits: list[str] = []
-    tests: list[TesteAderencia] = Field(min_length=1, max_length=LIMITE_TESTES_ADERENCIA)
-
-
-@router.post("/feasibility")
-def feasibility(payload: AderenciaIn, current_user: User = Depends(get_current_user)):
-    """Sugestão de aderência por pesquisa na web (Gemini com grounding), uma categoria do planejador por
-    teste. Sem estado: o planejador guarda como sugestão externa não confirmada."""
-    api_key, model = resolve_api_key(current_user), resolve_model(current_user)
-    resultados = []
-    for t in payload.tests:
-        try:
-            resultados.append(sugerir_aderencia(t.model_dump(), payload.fits, payload.lang, api_key, model))
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, interpretar_erro_gemini(exc))
-    return {"kind": "suse-poc-feasibility", "schema": 1, "results": resultados}
 
 
 @router.get("/history")

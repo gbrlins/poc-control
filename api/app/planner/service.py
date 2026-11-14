@@ -18,12 +18,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.gemini import (
-    FonteEvidencia,
     _TEXT_MODEL,
     _gerar_com_retry,
     gerar_procedimento_guiado,
     pesquisar_implementacao_item,
-    pesquisar_viabilidade_web,
 )
 from app.models import OrigemConhecimento, Procedimento, StatusProcedimento
 from app.procedimentos.router import _criar_procedimento
@@ -31,18 +29,7 @@ from app.procedimentos.router import _criar_procedimento
 PRODUTOS_PLANEJADOR = (
     "virtualization", "rancher", "security", "storage", "observability", "registry", "appcollection", "manager",
 )
-# Mesmas categorias do TEST_FIT do planejador, com a definição que a IA deve usar.
-CATEGORIAS_ADERENCIA = {
-    "native": "funciona de forma nativa, sem configuração especial",
-    "config": "nativo, mas exige configuração/ajuste documentado",
-    "rancher": "só com Rancher Prime (ou outro produto pago da família)",
-    "third": "depende de produto ou serviço de terceiros",
-    "validate": "não há evidência suficiente: validar em laboratório",
-    "gap": "gap conhecido: a documentação diz que não é suportado",
-}
 LIMITE_TESTES_CATALOGO = 500
-LIMITE_TESTES_ADERENCIA = 5
-_IDIOMAS = {"pt": "português do Brasil", "en": "English", "es": "español"}
 
 
 class ProjetoSugerido(BaseModel):
@@ -220,74 +207,6 @@ def extrair_hidratacao(
     parsed = response.parsed
     extraido = parsed if isinstance(parsed, ExtracaoHidratacao) else ExtracaoHidratacao.model_validate_json(response.text)
     return montar_hidratacao(extraido, catalogo)
-
-
-class AvaliacaoAderencia(BaseModel):
-    categoria: str
-    justificativa: str
-
-
-_ADERENCIA_PROMPT = """\
-Com base na pesquisa abaixo, classifique a ADERÊNCIA do teste de PoC no produto SUSE, escolhendo UMA categoria:
-{categorias}
-
-Teste: {titulo}
-Resultado esperado: {esperado}
-
-Pesquisa:
-\"\"\"
-{pesquisa}
-\"\"\"
-
-Se a pesquisa não trouxer evidência clara, use "validate" (nunca "native" por palavras genéricas). Use "gap" só \
-com evidência explícita de que não é suportado. Responda em {idioma}; justificativa: 1-2 frases objetivas.
-"""
-
-
-def sugerir_aderencia(teste: dict, fits: list[str], lang: str, api_key: str | None, model: str | None) -> dict:
-    """Pesquisa na web (Gemini com grounding) e classifica numa categoria do planejador. Sem estado."""
-    permitidas = [f for f in fits if f in CATEGORIAS_ADERENCIA] or list(CATEGORIAS_ADERENCIA)
-    consulta = f"Produto SUSE ({teste['product']}): {teste['title']}. Resultado esperado: {teste['expected']}"
-    pesquisa, fontes = pesquisar_viabilidade_web(consulta, api_key=api_key, model=model)
-    response = _gerar_com_retry(
-        api_key=api_key,
-        contexto="planner_aderencia",
-        model=model or _TEXT_MODEL,
-        contents=_ADERENCIA_PROMPT.format(
-            categorias="\n".join(f'- {c}: {CATEGORIAS_ADERENCIA[c]}' for c in permitidas),
-            titulo=teste["title"], esperado=teste["expected"] or "-", pesquisa=pesquisa or "(sem resultado)",
-            idioma=_IDIOMAS.get(lang, _IDIOMAS["pt"]),
-        ),
-        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=AvaliacaoAderencia),
-    )
-    parsed = response.parsed
-    av = parsed if isinstance(parsed, AvaliacaoAderencia) else AvaliacaoAderencia.model_validate_json(response.text)
-    return montar_aderencia(teste["id"], av, fontes, permitidas)
-
-
-def montar_aderencia(teste_id: str, av: AvaliacaoAderencia, fontes: list[FonteEvidencia], permitidas: list[str]) -> dict:
-    # Categoria fora da lista (ou sem fontes para sustentar mais que "validar") nunca vira certeza.
-    fit = av.categoria if av.categoria in permitidas else "validate"
-    if not fontes and fit in ("native", "config", "gap") and "validate" in permitidas:
-        fit = "validate"
-    return {
-        "id": teste_id,
-        "fit": fit,
-        "rationale": _texto(av.justificativa, 600),
-        "sources": _fontes_unicas(fontes),
-    }
-
-
-def _fontes_unicas(fontes: list[FonteEvidencia]) -> list[dict]:
-    """O grounding do Gemini repete a mesma fonte; mostra cada URL http(s) uma vez, no máximo 5."""
-    vistas: set[str] = set()
-    out = []
-    for f in fontes:
-        if re.match(r"https?://", f.url) and f.url not in vistas:
-            vistas.add(f.url)
-            out.append({"title": _texto(f.titulo, 150) or f.url, "url": f.url})
-    return out[:5]
-
 
 def _contexto_planner(produto: str, cliente: str, escopo: str) -> str:
     partes = [f"Produto SUSE: {produto}"] if produto else []

@@ -12,7 +12,6 @@ for chave, valor in {
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.deps import get_current_user  # noqa: E402
-from app.gemini import FonteEvidencia  # noqa: E402
 from app.main import app  # noqa: E402
 from app.planner import router as planner_router  # noqa: E402
 from app.planner import service  # noqa: E402
@@ -54,14 +53,13 @@ def test_capabilities_sem_autenticacao():
     assert r.json() == {
         "kind": "poc-control",
         "schema": 1,
-        "features": ["hydrate", "feasibility", "procedures", "execution", "history", "draft"],
+        "features": ["hydrate", "procedures", "execution", "history", "draft"],
     }
 
 
-def test_hydrate_e_feasibility_exigem_login():
+def test_hydrate_e_procedure_draft_exigem_login():
     c = _cliente(autenticado=False)
     assert c.post("/api/planner/hydrate", data={"texto": "x", "catalogo": json.dumps(CATALOGO)}).status_code == 401
-    assert c.post("/api/planner/feasibility", json={"tests": [{"id": "a", "title": "t"}]}).status_code == 401
     assert c.post("/api/planner/procedure-draft", json={"test": {"id": "a", "title": "t"}}).status_code == 401
 
 
@@ -104,33 +102,6 @@ def test_hydrate_falha_do_gemini_vira_502(monkeypatch):
     monkeypatch.setattr(planner_router, "extrair_hidratacao", quebra)
     r = _cliente().post("/api/planner/hydrate", data={"texto": "x", "catalogo": json.dumps(CATALOGO)})
     assert r.status_code == 502
-
-
-def test_aderencia_nunca_vira_certeza_sem_fonte():
-    av = service.AvaliacaoAderencia(categoria="native", justificativa="parece nativo")
-    sem = service.montar_aderencia("t1", av, [], list(service.CATEGORIAS_ADERENCIA))
-    assert sem["fit"] == "validate" and sem["sources"] == []
-    fonte = [FonteEvidencia(titulo="Docs", url="https://documentation.suse.com/x"), FonteEvidencia(titulo="x", url="javascript:alert(1)")]
-    com = service.montar_aderencia("t1", av, fonte, list(service.CATEGORIAS_ADERENCIA))
-    assert com["fit"] == "native" and [s["url"] for s in com["sources"]] == ["https://documentation.suse.com/x"]
-    repetidas = [FonteEvidencia(titulo="A", url="https://a.example/x")] * 3 + [FonteEvidencia(titulo="B", url="https://b.example/y")]
-    assert [x["url"] for x in service.montar_aderencia("t1", av, repetidas, ["native", "validate"])["sources"]] == ["https://a.example/x", "https://b.example/y"]
-    fora = service.montar_aderencia("t1", service.AvaliacaoAderencia(categoria="inventada", justificativa=""), fonte, ["native", "validate"])
-    assert fora["fit"] == "validate"
-
-
-def test_feasibility_contrato(monkeypatch):
-    def falso(teste, fits, lang, key, model):
-        assert fits == ["native", "gap"] and lang == "pt"
-        return {"id": teste["id"], "fit": "native", "rationale": "ok", "sources": []}
-
-    monkeypatch.setattr(planner_router, "sugerir_aderencia", falso)
-    c = _cliente()
-    r = c.post("/api/planner/feasibility", json={"lang": "pt", "fits": ["native", "gap"], "tests": [{"id": "a", "product": "p", "title": "t"}]})
-    assert r.status_code == 200 and r.json() == {"kind": "suse-poc-feasibility", "schema": 1, "results": [{"id": "a", "fit": "native", "rationale": "ok", "sources": []}]}
-    muitos = [{"id": str(i), "title": "t"} for i in range(service.LIMITE_TESTES_ADERENCIA + 1)]
-    assert c.post("/api/planner/feasibility", json={"tests": muitos}).status_code == 422
-    assert c.post("/api/planner/feasibility", json={"tests": []}).status_code == 422
 
 
 def test_procedure_draft_contrato(monkeypatch):
