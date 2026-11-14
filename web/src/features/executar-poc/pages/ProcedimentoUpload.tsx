@@ -34,7 +34,7 @@ export function ProcedimentoUpload() {
       form.append("status", status);
       form.append("arquivo", arquivo);
       const criado = await api.criarProcedimento(form);
-      navigate(`/procedimentos/${criado.id}`);
+      navigate(`/procedures/${criado.id}`);
     } catch {
       setErro(t("procedimentoUpload.erroSalvar"));
     } finally {

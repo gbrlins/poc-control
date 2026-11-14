@@ -106,7 +106,9 @@ export function SincronizarProcedimentos({
                 <span className="muted" style={{ fontSize: 12 }}>
                   {p.cliente_origem ?? "—"}
                 </span>
-                <span className={`badge badge-${p.status}`}>{p.status}</span>
+                <span className={`badge badge-${p.status}`}>
+                  {t(p.status === "validado" ? "procedimento.statusValidado" : "procedimento.statusRascunho")}
+                </span>
               </li>
             ))}
           </ul>

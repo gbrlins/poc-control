@@ -14,7 +14,7 @@ export function OrigemChip({ origem }: { origem: OrigemConhecimento }) {
   return <span className={`chip chip-origem-${origem}`}>{t(labelKey)}</span>;
 }
 
-// Shared between ProcedimentoView.tsx (the full-page /procedimentos/:id route -- kept for deep
+// Shared between ProcedimentoView.tsx (the full-page /procedures/:id route -- kept for deep
 // links, e.g. RFI's "Ver procedimento interno") and Procedimentos.tsx's inline-expand row, so the
 // actual content rendering (info line, indexed sections, original HTML) has one source of truth.
 export function ProcedimentoConteudo({ procedimento }: { procedimento: ProcedimentoDetail }) {

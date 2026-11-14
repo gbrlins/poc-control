@@ -59,7 +59,7 @@ export function Procedimentos() {
               {t("procedimentos.sincronizar")}
             </button>
           )}
-          <Link to="/procedimentos/novo" className="btn btn-primary">
+          <Link to="/procedures/new" className="btn btn-primary">
             {t("procedimentos.novoProcedimento")}
           </Link>
         </div>
@@ -160,7 +160,9 @@ function ProcedimentoRow({ item }: { item: ProcedimentoListItem }) {
         <span className="muted" style={{ fontSize: 12 }}>
           {item.responsavel_email ?? t("procedimentos.semDono")}
         </span>
-        <span className={`badge badge-${item.status}`}>{item.status}</span>
+        <span className={`badge badge-${item.status}`}>
+          {t(item.status === "validado" ? "procedimento.statusValidado" : "procedimento.statusRascunho")}
+        </span>
       </div>
 
       {open && (
@@ -169,7 +171,7 @@ function ProcedimentoRow({ item }: { item: ProcedimentoListItem }) {
           {detalhe && (
             <>
               <ProcedimentoConteudo procedimento={detalhe} />
-              <Link to={`/procedimentos/${item.id}`} className="btn btn-secondary">
+              <Link to={`/procedures/${item.id}`} className="btn btn-secondary">
                 {t("procedimentos.abrirTelaCheia")}
               </Link>
             </>

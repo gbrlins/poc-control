@@ -41,7 +41,7 @@ export function ProcedimentoView() {
 
   return (
     <div>
-      <button type="button" className="btn btn-secondary" style={{ marginBottom: 16 }} onClick={() => navigate("/procedimentos")}>
+      <button type="button" className="btn btn-secondary" style={{ marginBottom: 16 }} onClick={() => navigate("/procedures")}>
         {t("procedimentoView.voltar")}
       </button>
 
@@ -50,7 +50,9 @@ export function ProcedimentoView() {
         <div style={{ display: "flex", gap: 8 }}>
           <OrigemChip origem={procedimento.origem_conhecimento} />
           {procedimento.gerado_por_ia && <span className="chip">{t("procedimentoView.geradoPorIa")}</span>}
-          <span className={`badge badge-${procedimento.status}`}>{procedimento.status}</span>
+          <span className={`badge badge-${procedimento.status}`}>
+            {t(procedimento.status === "validado" ? "procedimento.statusValidado" : "procedimento.statusRascunho")}
+          </span>
         </div>
       </div>
 
@@ -78,7 +80,7 @@ export function ProcedimentoView() {
         onResponsavelAtualizado={(responsavelId, responsavelEmail) =>
           setProcedimento({ ...procedimento, responsavel_id: responsavelId, responsavel_email: responsavelEmail })
         }
-        onExcluido={() => navigate("/procedimentos")}
+        onExcluido={() => navigate("/procedures")}
       />
     </div>
   );

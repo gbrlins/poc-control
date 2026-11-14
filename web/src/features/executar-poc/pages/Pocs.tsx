@@ -23,7 +23,7 @@ export function Pocs() {
     <div>
       <div className="page-header">
         <h1>{t("pocs.titulo")}</h1>
-        <Link to="/pocs/novo" className="btn btn-primary">
+        <Link to="/pocs/new" className="btn btn-primary">
           {t("pocs.novaPoc")}
         </Link>
       </div>

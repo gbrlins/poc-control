@@ -109,7 +109,7 @@ export function DangerZone({ tipo, id, responsavelId, responsavelEmail, onRespon
               type="email"
               value={emailTransferencia}
               onChange={(e) => setEmailTransferencia(e.target.value)}
-              placeholder="colega@empresa.com"
+              placeholder={t("dangerZone.transferirPlaceholder")}
             />
             <button className="btn btn-secondary" onClick={transferir} disabled={processandoResponsavel}>
               {t("dangerZone.transferir")}

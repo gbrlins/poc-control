@@ -47,7 +47,7 @@ export function Layout({ user, onLogout }: { user: User; onLogout: () => void })
   // Only the planner's own iframe page needs the no-padding, fixed-height treatment (and skips
   // the Gemini-key banner, which wouldn't make sense floating over an iframe that has its own
   // full-page UI) -- "/" is the real Home page now, a normal page like any other.
-  const isPlanejador = location.pathname === "/planejar";
+  const isPlanejador = location.pathname === "/plan";
   // Home's hub (hero + action tiles + 3 history cards side by side) reads cramped at the normal
   // .page width now that the sidebar is gone -- give it more of the screen (page-wide, ~66vw)
   // instead of widening .page globally for every other screen.
@@ -129,11 +129,11 @@ export function Layout({ user, onLogout }: { user: User; onLogout: () => void })
           </button>
           {accountOpen && (
             <div className="account-dropdown">
-              <Link to="/minha-conta" onClick={() => setAccountOpen(false)}>
+              <Link to="/my-account" onClick={() => setAccountOpen(false)}>
                 {t("nav.minhaConta")}
               </Link>
               {user.is_admin && (
-                <Link to="/usuarios" onClick={() => setAccountOpen(false)}>
+                <Link to="/users" onClick={() => setAccountOpen(false)}>
                   {t("nav.usuarios")}
                 </Link>
               )}
@@ -149,7 +149,7 @@ export function Layout({ user, onLogout }: { user: User; onLogout: () => void })
         <main className={isPlanejador ? "page page-flush" : isHome ? "page page-wide" : "page"}>
           {!isPlanejador && !user.tem_gemini_key && (
             <p className="alert alert-warning" style={{ marginBottom: 20 }}>
-              {t("layout.chaveCompartilhadaAntes")} <Link to="/minha-conta">{t("nav.minhaConta")}</Link>{" "}
+              {t("layout.chaveCompartilhadaAntes")} <Link to="/my-account">{t("nav.minhaConta")}</Link>{" "}
               {t("layout.chaveCompartilhadaDepois")}
             </p>
           )}

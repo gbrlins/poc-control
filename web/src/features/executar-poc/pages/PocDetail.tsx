@@ -1417,7 +1417,7 @@ function ItemRow({
                 <>
                   <span>
                     {t("itemRow.procedimentoLabel")}{" "}
-                    <Link to={`/procedimentos/${procedimentoVinculado.id}`}>{procedimentoVinculado.titulo}</Link>
+                    <Link to={`/procedures/${procedimentoVinculado.id}`}>{procedimentoVinculado.titulo}</Link>
                   </span>
                   <button className="btn btn-secondary" onClick={() => setVerProcedimento(true)} type="button">
                     {t("itemRow.abrirTelaCheia")}
@@ -1599,7 +1599,7 @@ function ItemRow({
                     <p style={{ marginTop: 10 }}>
                       <span className="badge badge-muted">{t("itemRow.rascunhoGeradoPorIa")}</span>{" "}
                       <Link
-                        to={`/procedimentos/${item.classificacao.procedimento_rascunho_id}`}
+                        to={`/procedures/${item.classificacao.procedimento_rascunho_id}`}
                         className="btn btn-secondary"
                         style={{ display: "inline-flex", marginLeft: 6 }}
                       >

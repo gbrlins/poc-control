@@ -85,7 +85,7 @@ export function Home() {
   const [procedimentos, setProcedimentos] = useState<ProcedimentoListItem[] | null>(null);
   const [licitacoes, setLicitacoes] = useState<LicitacaoOut[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  // Re-read on every mount (e.g. coming back from /planejar) rather than once ever, since the
+  // Re-read on every mount (e.g. coming back from /plan) rather than once ever, since the
   // planner's localStorage can change without poc-control's own React tree re-rendering.
   const [rascunhos] = useState<RascunhoLocal[]>(() => lerRascunhosLocais(t("home.rascunhoSemNome")));
 
@@ -121,7 +121,7 @@ export function Home() {
   }));
   const procedimentosOrdenados: HistoryRow[] = ordenarPorRecente(procedimentos).map((p) => ({
     id: p.id,
-    href: `/procedimentos/${p.id}`,
+    href: `/procedures/${p.id}`,
     titulo: p.titulo,
     subtitulo: p.cliente_origem ?? "",
     createdAt: p.created_at,
@@ -146,7 +146,7 @@ export function Home() {
     } catch {
       // localStorage indisponível ou corrompido: ainda assim navega, o planejador cai no fallback dele.
     }
-    navigate("/planejar");
+    navigate("/plan");
   }
 
   return (
@@ -162,28 +162,28 @@ export function Home() {
       {erro && <p className="alert alert-error">{erro}</p>}
 
       <div className="home-actions">
-        <Link to="/planejar" className="home-action home-action-primary">
+        <Link to="/plan" className="home-action home-action-primary">
           <Icon name="plus" />
           <div>
             <strong>{t("home.actionPlanejar")}</strong>
             <span>{t("home.actionPlanejarDesc")}</span>
           </div>
         </Link>
-        <Link to="/rfis/novo" className="home-action home-action-rfi">
+        <Link to="/rfis/new" className="home-action home-action-rfi">
           <Icon name="eye" />
           <div>
             <strong>{t("home.analisarRfi")}</strong>
             <span>{t("home.actionRfiDesc")}</span>
           </div>
         </Link>
-        <Link to="/procedimentos" className="home-action home-action-procedimentos">
+        <Link to="/procedures" className="home-action home-action-procedimentos">
           <Icon name="book" />
           <div>
             <strong>{t("nav.procedimentos")}</strong>
             <span>{t("home.actionProcedimentosDesc")}</span>
           </div>
         </Link>
-        <Link to="/licitacoes" className="home-action home-action-licitacoes">
+        <Link to="/tenders" className="home-action home-action-licitacoes">
           <Icon name="broadcast" />
           <div>
             <strong>
@@ -214,7 +214,7 @@ export function Home() {
         <HistoryCard
           titulo={t("home.recentesProcedimentos")}
           vazio={t("procedimentos.nenhum")}
-          verTodosHref="/procedimentos"
+          verTodosHref="/procedures"
           verTodosLabel={t("home.verProcedimentos")}
           carregando={procedimentos === null}
           itens={procedimentosOrdenados}
@@ -247,7 +247,7 @@ function LicitacoesCard({ carregando, itens }: { carregando: boolean; itens: Lic
       {!carregando &&
         recentes.map((lic) => (
           <div key={lic.id} className="history-row licitacao-row">
-            <Link to="/licitacoes" className="licitacao-row-main">
+            <Link to="/tenders" className="licitacao-row-main">
               <div className="history-row-title">{lic.objeto}</div>
               <div className="history-row-sub">
                 {lic.orgao_nome}
@@ -261,7 +261,7 @@ function LicitacoesCard({ carregando, itens }: { carregando: boolean; itens: Lic
           </div>
         ))}
       {!carregando && itens.length > 0 && (
-        <Link to="/licitacoes" className="history-row-all">
+        <Link to="/tenders" className="history-row-all">
           {t("home.verLicitacoes")}
         </Link>
       )}

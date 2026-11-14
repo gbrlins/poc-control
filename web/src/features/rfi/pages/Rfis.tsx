@@ -52,7 +52,7 @@ export function Rfis() {
     <div>
       <div className="page-header">
         <h1>{t("rfis.titulo")}</h1>
-        <Link to="/rfis/novo" className="btn btn-primary">
+        <Link to="/rfis/new" className="btn btn-primary">
           {t("rfis.novoRfi")}
         </Link>
       </div>

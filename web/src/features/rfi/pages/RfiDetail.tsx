@@ -531,7 +531,7 @@ function RfiItemRow({
           {erroReavaliar && <p className="alert alert-error" style={{ marginTop: 0 }}>{erroReavaliar}</p>}
           {item.procedimento_id && (
             <p style={{ marginTop: 0 }}>
-              <Link to={`/procedimentos/${item.procedimento_id}`} className="btn btn-secondary" style={{ display: "inline-flex" }}>
+              <Link to={`/procedures/${item.procedimento_id}`} className="btn btn-secondary" style={{ display: "inline-flex" }}>
                 {t("rfiItemRow.verProcedimentoInterno")}
                 {item.procedimento_titulo ? `: ${item.procedimento_titulo}` : ""}
               </Link>
