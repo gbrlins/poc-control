@@ -119,7 +119,7 @@ export function RfiDetail() {
   function carregar() {
     if (!id) return;
     api
-      .obterRfi(id)
+      .obterRfi(id, lang)
       .then((data) => {
         setRfi(data);
         const novasEntradas = diffParaFeed(data.itens, vistosRef.current, primeiraCargaRef.current, t);
@@ -145,6 +145,13 @@ export function RfiDetail() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Língua trocada: busca de novo pra pegar os campos traduzidos, sem tratar como "primeira
+  // carga" (isso zeraria o feed de mudanças recentes só por ter trocado o idioma da tela).
+  useEffect(() => {
+    if (!primeiraCargaRef.current) carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
 
   function atualizarItem(atualizado: RfiItemOut) {
     setRfi((prev) =>

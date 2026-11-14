@@ -205,6 +205,7 @@ def _salvar_auto(
     procedimento_id: uuid.UUID | None,
     modelo: str,
     confirmado_por_historico: bool = False,
+    lang: str | None = None,
 ) -> Classificacao:
     classificacao = item.classificacao
     if classificacao is None:
@@ -218,6 +219,9 @@ def _salvar_auto(
     classificacao.procedimento_id = procedimento_id
     classificacao.confirmado_por_historico = confirmado_por_historico
     classificacao.modelo = modelo
+    # Justificativa nova: idioma_original acompanha e o cache de tradução antigo fica obsoleto.
+    classificacao.idioma_original = lang or "pt"
+    classificacao.traducoes = {}
 
     db.commit()
     db.refresh(classificacao)
@@ -263,6 +267,7 @@ def classificar_item(
                 fontes=[],
                 procedimento_id=procedimento.id,
                 modelo=modelo_usado,
+                lang=lang,
             )
 
     textos_historico = _buscar_candidatos_historico(db, vetor, categorias_afinidade=categorias_afinidade)
@@ -282,6 +287,7 @@ def classificar_item(
                 procedimento_id=None,
                 modelo=modelo_usado,
                 confirmado_por_historico=True,
+                lang=lang,
             )
 
     texto_pesquisa, fontes = pesquisar_viabilidade_web(texto, api_key=api_key, model=model, lang=lang)
@@ -299,7 +305,8 @@ def classificar_item(
         justificativa = f"{_baixa_confianca(lang)} {avaliacao.justificativa}".strip()
 
     return _salvar_auto(
-        db, item, flag=flag, justificativa=justificativa, fontes=fontes_dump, procedimento_id=None, modelo=modelo_usado
+        db, item, flag=flag, justificativa=justificativa, fontes=fontes_dump, procedimento_id=None,
+        modelo=modelo_usado, lang=lang,
     )
 
 

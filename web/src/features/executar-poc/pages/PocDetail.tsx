@@ -177,7 +177,7 @@ export function PocDetail() {
   function carregar() {
     if (!id) return;
     api
-      .obterPoc(id)
+      .obterPoc(id, lang)
       .then((data) => {
         setPoc(data);
         // Mesma condição unificada do RfiDetail.tsx: continua reconsultando enquanto a
@@ -200,7 +200,7 @@ export function PocDetail() {
       if (pollRef.current) window.clearTimeout(pollRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, lang]);
 
   function handleItemAtualizado(atualizado: ItemPoc) {
     setPoc((atual) => (atual ? { ...atual, itens: atual.itens.map((i) => (i.id === atualizado.id ? atualizado : i)) } : atual));

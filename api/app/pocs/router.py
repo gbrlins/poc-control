@@ -21,6 +21,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.gemini import extrair_resumo_sessao, gerar_resumo_email, gerar_resumo_executivo
 from app.gemini_key import resolve_api_key, resolve_model
+from app.traducao import campos_no_idioma
 from app.models import (
     Anexo,
     Classificacao,
@@ -341,9 +342,45 @@ def cancelar_processamento(poc_id: uuid.UUID, db: Session = Depends(get_db)):
     return _list_item(db, poc)
 
 
+def _traduzir_item_out(db: Session, item: Item, item_out: ItemOut, lang: str, api_key: str | None) -> None:
+    """Sobrescreve os campos textuais de um ItemOut (já convertido do ORM -- mutar esta cópia
+    Pydantic nunca arrisca persistir o texto traduzido na linha real) com a tradução sob demanda,
+    pra `lang`. Branch v2 -- ver app/traducao.py::campos_no_idioma, migração 0031."""
+    campos = {
+        chave: valor
+        for chave, valor in {
+            "titulo": item_out.titulo, "descricao": item_out.descricao,
+            "criterio_aceite": item_out.criterio_aceite, "categoria": item_out.categoria,
+        }.items()
+        if valor
+    }
+    if campos:
+        traduzidos = campos_no_idioma(db, item, lang, campos, api_key=api_key)
+        item_out.titulo = traduzidos.get("titulo", item_out.titulo)
+        item_out.descricao = traduzidos.get("descricao", item_out.descricao)
+        item_out.criterio_aceite = traduzidos.get("criterio_aceite", item_out.criterio_aceite)
+        item_out.categoria = traduzidos.get("categoria", item_out.categoria)
+    if item_out.classificacao is not None and item_out.classificacao.justificativa and item.classificacao is not None:
+        traduzida = campos_no_idioma(
+            db, item.classificacao, lang, {"justificativa": item_out.classificacao.justificativa}, api_key=api_key
+        )
+        item_out.classificacao.justificativa = traduzida.get("justificativa", item_out.classificacao.justificativa)
+
+
 @router.get("/{poc_id}", response_model=PocDetail)
-def obter_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
+def obter_poc(
+    poc_id: uuid.UUID,
+    lang: str = "pt",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     poc = _get_poc_or_404(db, poc_id)
+    if lang not in ("pt", "en", "es"):
+        lang = "pt"
+    api_key = resolve_api_key(current_user)
+    itens_out = [ItemOut.model_validate(i) for i in poc.itens]
+    for item, item_out in zip(poc.itens, itens_out):
+        _traduzir_item_out(db, item, item_out, lang, api_key)
     return PocDetail(
         # Reaproveita _list_item (em vez de repetir campo a campo) -- é exatamente esse tipo de
         # duplicação que já deixou responsavel_id de fora daqui uma vez (ver test_exclusao_db.py
@@ -355,7 +392,7 @@ def obter_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
         resumo_executivo=poc.resumo_executivo,
         parametros_tecnicos=poc.parametros_tecnicos,
         fases=[FaseOut(**f) for f in (poc.fases or [])],
-        itens=[ItemOut.model_validate(i) for i in poc.itens],
+        itens=itens_out,
         prerequisitos=[PrerequisitoOut.model_validate(p) for p in poc.prerequisitos],
         sessoes=[SessaoOut.model_validate(s) for s in poc.sessoes],
         documentos=[_documento_out(db, d) for d in poc.documentos],

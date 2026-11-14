@@ -118,6 +118,8 @@ def _avaliar_por_historico(
     item.confirmado_por_historico = True
     item.origem = OrigemClassificacao.auto
     item.modelo = modelo_efetivo(model)
+    item.idioma_original = lang or "pt"
+    item.traducoes = {}
     atualizar_embedding_historico_rfi(db, item, api_key)
     db.commit()
     db.refresh(item)
@@ -153,6 +155,8 @@ def avaliar_item_rfi(
             item.veredito = VeredictoRfi.sem_evidencia
             item.justificativa = _justificativa_erro(interpretar_erro_gemini(exc), lang)
             item.origem = None
+            item.idioma_original = lang or "pt"
+            item.traducoes = {}
         item.etapa = None
         db.commit()
         raise
@@ -191,6 +195,8 @@ def _avaliar_item_rfi(
         item.confirmado_por_historico = False
         item.origem = OrigemClassificacao.auto
         item.modelo = modelo_efetivo(model)
+        item.idioma_original = lang or "pt"
+        item.traducoes = {}
         # Mesmo com o procedimento confirmando (evidência mais forte, já destacada na UI -- ver
         # RfiItemRow), complementa com fontes da web em vez de pular a pesquisa de vez: só a
         # busca com grounding, sem a segunda chamada de classificação (o veredito já está
@@ -232,6 +238,8 @@ def _avaliar_item_rfi(
     item.procedimento_id = None
     item.confirmado_por_historico = False
     item.modelo = modelo_usado
+    item.idioma_original = lang or "pt"
+    item.traducoes = {}
     atualizar_embedding_historico_rfi(db, item, api_key)
 
     db.commit()

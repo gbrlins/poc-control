@@ -123,6 +123,7 @@ def _aplicar_extracao_gemini(
                 fase=item.fase + base_fase,
                 ref=item.ref or None,
                 ordem=proxima_ordem,
+                idioma_original=lang or "pt",
             )
         )
         proxima_ordem += 1

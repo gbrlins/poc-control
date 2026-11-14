@@ -149,6 +149,7 @@ def processar_rfi(
                     categoria_codigo=normalizar_categoria(item.categoria_codigo),
                     descricao=item.descricao,
                     ordem=proxima_ordem,
+                    idioma_original=lang or "pt",
                 )
                 proxima_ordem += 1
                 db.add(novo)

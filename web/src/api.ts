@@ -469,7 +469,7 @@ export const api = {
     }),
 
   listarPocs: () => request<PocListItem[]>("/api/pocs"),
-  obterPoc: (id: string) => request<PocDetail>(`/api/pocs/${id}`),
+  obterPoc: (id: string, lang: string) => request<PocDetail>(`/api/pocs/${id}?lang=${lang}`),
   criarPoc: (form: FormData, lang: string) => {
     form.set("lang", lang);
     return request<PocListItem>("/api/pocs", { method: "POST", body: form });
@@ -552,7 +552,7 @@ export const api = {
     request<ProcedimentoListItem[]>(`/api/pocs/${pocId}/itens/${itemId}/sugestoes-procedimento`),
 
   listarRfis: () => request<RfiListItem[]>("/api/rfis"),
-  obterRfi: (id: string) => request<RfiDetail>(`/api/rfis/${id}`),
+  obterRfi: (id: string, lang: string) => request<RfiDetail>(`/api/rfis/${id}?lang=${lang}`),
   criarRfi: (form: FormData, lang: string) => {
     form.set("lang", lang);
     return request<RfiListItem>("/api/rfis", { method: "POST", body: form });

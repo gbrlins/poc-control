@@ -18,6 +18,7 @@ from app.rfi.export import montar_rfi_export_html, montar_rfi_export_xlsx
 from app.rfi.schemas import ContagemVeredito, RfiDetail, RfiDocumentoOut, RfiItemManualUpdate, RfiItemOut, RfiListItem
 from app.rfi.service import avaliar_item_rfi
 from app.rfi.tasks import iniciar_processamento, processar_rfi, reavaliar_rfi
+from app.traducao import campos_no_idioma
 
 router = APIRouter(prefix="/api/rfis", tags=["rfis"], dependencies=[Depends(get_current_user)])
 
@@ -166,15 +167,42 @@ def criar_rfi(
     return _list_item(db, rfi)
 
 
+def _traduzir_rfi_item_out(db: Session, item: RfiItem, item_out: RfiItemOut, lang: str, api_key: str | None) -> None:
+    """Mesma lógica de app/pocs/router.py::_traduzir_item_out, pra RfiItem -- NUNCA inclui
+    `descricao` (cópia literal do edital, por design não é traduzida, ver RfiItem.idioma_original
+    em app/models.py)."""
+    campos = {
+        chave: valor
+        for chave, valor in {"categoria": item_out.categoria, "justificativa": item_out.justificativa}.items()
+        if valor
+    }
+    if not campos:
+        return
+    traduzidos = campos_no_idioma(db, item, lang, campos, api_key=api_key)
+    item_out.categoria = traduzidos.get("categoria", item_out.categoria)
+    item_out.justificativa = traduzidos.get("justificativa", item_out.justificativa)
+
+
 @router.get("/{rfi_id}", response_model=RfiDetail)
-def obter_rfi(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
+def obter_rfi(
+    rfi_id: uuid.UUID,
+    lang: str = "pt",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     rfi = _get_rfi_or_404(db, rfi_id)
+    if lang not in ("pt", "en", "es"):
+        lang = "pt"
+    api_key = resolve_api_key(current_user)
+    itens_out = [RfiItemOut.model_validate(i) for i in rfi.itens]
+    for item, item_out in zip(rfi.itens, itens_out):
+        _traduzir_rfi_item_out(db, item, item_out, lang, api_key)
     return RfiDetail(
         **_list_item(db, rfi).model_dump(),
         erro_extracao=rfi.erro_extracao,
         modelo_extracao=rfi.modelo_extracao,
         documentos=[_documento_out(db, d) for d in rfi.documentos],
-        itens=[RfiItemOut.model_validate(i) for i in rfi.itens],
+        itens=itens_out,
     )
 
 

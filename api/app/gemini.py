@@ -228,6 +228,55 @@ def traduzir_procedimento_html(
     return TraducaoProcedimento.model_validate_json(response.text)
 
 
+class TraducaoCampos(BaseModel):
+    textos: list[str]
+
+
+_TRADUCAO_CAMPOS_PROMPT = """\
+Traduza cada um dos textos abaixo para {idioma}, preservando a ordem e o sentido técnico. Não \
+traduza nomes de recursos técnicos, comandos, URLs, códigos ou identificadores literais dentro do \
+texto -- só a linguagem natural. Se um texto já estiver em {idioma}, devolva-o praticamente \
+inalterado (mesmo assim ele entra na resposta, na mesma posição).
+
+Textos (numerados, um por linha):
+{textos_numerados}
+
+Devolva exatamente {n} textos em "textos", na mesma ordem dos números acima.
+"""
+
+
+def traduzir_campos_texto(
+    textos: list[str], idioma_alvo: str, api_key: str | None = None, model: str | None = None
+) -> list[str]:
+    """Generaliza traduzir_procedimento_html pra uma lista de textos curtos (título, descrição,
+    justificativa, ...) em vez de um HTML inteiro -- usado por app/traducao.py::campos_no_idioma
+    pra Item/Classificacao/RfiItem (branch v2). Mantém a ordem (não pede de volta um dict com as
+    mesmas chaves porque response_schema do Gemini exige um schema fixo, incompatível com chaves
+    dinâmicas) -- quem chama remonta {chave: texto} casando pela posição."""
+    if not textos:
+        return []
+    numerados = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(textos))
+    response = _gerar_com_retry(
+        api_key=api_key,
+        contexto="traduzir_campos_texto",
+        model=model or _TEXT_MODEL,
+        contents=_TRADUCAO_CAMPOS_PROMPT.format(
+            idioma=_nome_idioma(idioma_alvo), textos_numerados=numerados, n=len(textos)
+        ),
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=TraducaoCampos,
+        ),
+    )
+    parsed = response.parsed
+    resultado = parsed if isinstance(parsed, TraducaoCampos) else TraducaoCampos.model_validate_json(response.text)
+    if len(resultado.textos) != len(textos):
+        raise ValueError(
+            f"Gemini devolveu {len(resultado.textos)} textos traduzidos, esperava {len(textos)}"
+        )
+    return resultado.textos
+
+
 class FaseExtraida(BaseModel):
     numero: int
     titulo: str
