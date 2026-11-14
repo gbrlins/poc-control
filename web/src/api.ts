@@ -64,6 +64,23 @@ export interface ProcedimentoListItem {
   criado_por_email: string | null;
 }
 
+export interface PreviaItemImportacao {
+  indice: number;
+  titulo: string;
+  valido: boolean;
+  erros: string[];
+  duplicado_id: string | null;
+  duplicado_titulo: string | null;
+}
+
+export interface ResultadoImportacaoItem {
+  indice: number;
+  titulo: string;
+  status: "importado" | "sobrescrito" | "pulado" | "erro";
+  erro: string | null;
+  id: string | null;
+}
+
 export interface ResultadoSincronizacao {
   id: string;
   titulo: string;
@@ -417,6 +434,20 @@ export const api = {
     request<ProcedimentoListItem>("/api/procedimentos", { method: "POST", body: form }),
   validarProcedimento: (id: string) =>
     request<{ id: string; status: string }>(`/api/procedimentos/${id}/validar`, { method: "POST" }),
+
+  previewImportarProcedimentosJson: (itens: unknown[]) =>
+    request<PreviaItemImportacao[]>("/api/procedimentos/importar-json/preview", {
+      method: "POST",
+      body: JSON.stringify(itens),
+    }),
+  importarProcedimentosJson: (itens: unknown[], sobrescreverIds: string[]) =>
+    request<ResultadoImportacaoItem[]>("/api/procedimentos/importar-json", {
+      method: "POST",
+      body: JSON.stringify({ itens, sobrescrever_ids: sobrescreverIds }),
+    }),
+  urlExportarProcedimento: (id: string) => `/api/procedimentos/${id}/exportar-json`,
+  urlExportarProcedimentos: (ids?: string[]) =>
+    `/api/procedimentos/exportar-json${ids && ids.length ? `?ids=${ids.join(",")}` : ""}`,
 
   syncConfig: () => request<{ configurado: boolean }>("/api/sync/config"),
   listarProcedimentosRemotos: () => request<ProcedimentoListItem[]>("/api/sync/remoto/procedimentos"),

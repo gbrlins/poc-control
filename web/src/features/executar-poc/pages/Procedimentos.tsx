@@ -59,6 +59,12 @@ export function Procedimentos() {
               {t("procedimentos.sincronizar")}
             </button>
           )}
+          <a href={api.urlExportarProcedimentos()} className="btn btn-secondary">
+            {t("procedimentos.exportarTodos")}
+          </a>
+          <Link to="/procedures/import-json" className="btn btn-secondary">
+            {t("procedimentos.importarJson")}
+          </Link>
           <Link to="/procedures/new" className="btn btn-primary">
             {t("procedimentos.novoProcedimento")}
           </Link>
@@ -174,6 +180,9 @@ function ProcedimentoRow({ item }: { item: ProcedimentoListItem }) {
               <Link to={`/procedures/${item.id}`} className="btn btn-secondary">
                 {t("procedimentos.abrirTelaCheia")}
               </Link>
+              <a href={api.urlExportarProcedimento(item.id)} className="btn btn-secondary">
+                {t("procedimentos.exportarJson")}
+              </a>
             </>
           )}
         </div>

@@ -10,6 +10,7 @@ import { Usuarios } from "./pages/Usuarios";
 import { MinhaConta } from "./pages/MinhaConta";
 import { Procedimentos } from "./features/executar-poc/pages/Procedimentos";
 import { ProcedimentoUpload } from "./features/executar-poc/pages/ProcedimentoUpload";
+import { ProcedimentoImportarJson } from "./features/executar-poc/pages/ProcedimentoImportarJson";
 import { ProcedimentoView } from "./features/executar-poc/pages/ProcedimentoView";
 import { Pocs } from "./features/executar-poc/pages/Pocs";
 import { PocUpload } from "./features/executar-poc/pages/PocUpload";
@@ -51,6 +52,7 @@ export function App() {
               <Route path="plan" element={<PlanPoc />} />
               <Route path="procedures" element={<Procedimentos />} />
               <Route path="procedures/new" element={<ProcedimentoUpload />} />
+              <Route path="procedures/import-json" element={<ProcedimentoImportarJson />} />
               <Route path="procedures/:id" element={<ProcedimentoView />} />
               <Route path="pocs" element={<Pocs />} />
               <Route path="pocs/new" element={<PocUpload />} />
