@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { api, User } from "../api";
+import { api, ChaveGeminiStatus, User } from "../api";
 import suseLogo from "../assets/suse-logo.svg";
 import { Icon } from "../Icon";
 import { useLanguage } from "../i18n";
@@ -39,10 +39,20 @@ function formatBuildInfo(lang: string): string {
 export function Layout({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [chaveOrigem, setChaveOrigem] = useState<ChaveGeminiStatus["origem"] | null>(null);
   const location = useLocation();
   const { lang, setLang, t } = useLanguage();
   const mounted = useRef(false);
   const accountRef = useRef<HTMLDivElement>(null);
+
+  // Discreet footer indicator (spec 3.1): which Gemini key source is active, without ever
+  // showing the key itself here -- the masked value + "Test key" live on Minha conta/My account.
+  useEffect(() => {
+    api
+      .statusChaveGemini()
+      .then((s) => setChaveOrigem(s.origem))
+      .catch(() => setChaveOrigem(null));
+  }, []);
 
   // Only the planner's own iframe page needs the no-padding, fixed-height treatment (and skips
   // the Gemini-key banner, which wouldn't make sense floating over an iframe that has its own
@@ -159,6 +169,14 @@ export function Layout({ user, onLogout }: { user: User; onLogout: () => void })
 
       <span className="build-info" title={__APP_BUILD_TIME__}>
         {formatBuildInfo(lang)}
+        {chaveOrigem && chaveOrigem !== "nenhuma" && (
+          <>
+            {" · "}
+            <Link to="/my-account" title={t("minhaConta.chaveEmUso")}>
+              {chaveOrigem === "pessoal" ? t("minhaConta.chaveOrigemPessoal") : t("minhaConta.chaveOrigemAmbiente")}
+            </Link>
+          </>
+        )}
       </span>
     </div>
   );

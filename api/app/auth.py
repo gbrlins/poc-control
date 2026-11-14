@@ -47,6 +47,22 @@ class UsuarioLookupOut(BaseModel):
     email: str
 
 
+class ChaveGeminiStatusOut(BaseModel):
+    origem: str  # "pessoal" | "ambiente" | "nenhuma"
+    chave_mascarada: str | None
+
+
+class TesteChaveGeminiOut(BaseModel):
+    ok: bool
+    mensagem: str | None
+
+
+def _mascarar_chave(chave: str) -> str:
+    if len(chave) <= 8:
+        return "…"
+    return f"{chave[:4]}…{chave[-4:]}"
+
+
 def _user_out(user: User) -> UserOut:
     return UserOut(
         id=str(user.id),
@@ -126,6 +142,31 @@ def buscar_usuario_por_email(email: str, db: Session = Depends(get_db), _: User 
     if usuario is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
     return UsuarioLookupOut(id=str(usuario.id), email=usuario.email)
+
+
+@router.get("/me/gemini-key/status", response_model=ChaveGeminiStatusOut)
+def status_chave_gemini(user: User = Depends(get_current_user)):
+    """Qual chave do Gemini está em uso agora pra este usuário (pessoal > compartilhada do .env >
+    nenhuma), mascarada -- nunca a chave completa, nunca em log. Sem chamar o Gemini (isso é o
+    botão "Testar chave" abaixo, de propósito, pra não gastar uma chamada a cada carregamento da
+    tela de Minha conta / indicador do rodapé)."""
+    pessoal = resolve_api_key(user)
+    if pessoal:
+        return ChaveGeminiStatusOut(origem="pessoal", chave_mascarada=_mascarar_chave(pessoal))
+    if settings.gemini_api_key:
+        return ChaveGeminiStatusOut(origem="ambiente", chave_mascarada=_mascarar_chave(settings.gemini_api_key))
+    return ChaveGeminiStatusOut(origem="nenhuma", chave_mascarada=None)
+
+
+@router.post("/me/gemini-key/testar", response_model=TesteChaveGeminiOut)
+def testar_chave_gemini(user: User = Depends(get_current_user)):
+    """Confirma que a chave em uso (pessoal ou compartilhada) de fato funciona, chamando o Gemini
+    de verdade -- ação deliberada do usuário (botão "Testar chave"), não automática."""
+    try:
+        listar_modelos_texto(resolve_api_key(user))
+    except Exception as exc:  # noqa: BLE001 - qualquer erro da chamada ao Gemini vira uma mensagem acionável
+        return TesteChaveGeminiOut(ok=False, mensagem=interpretar_erro_gemini(exc))
+    return TesteChaveGeminiOut(ok=True, mensagem=None)
 
 
 @router.get("/me/gemini-models", response_model=list[ModeloDisponivelOut])

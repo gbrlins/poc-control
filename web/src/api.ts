@@ -137,6 +137,18 @@ export interface ModeloGemini {
   nome_exibicao: string;
 }
 
+export type OrigemChaveGemini = "pessoal" | "ambiente" | "nenhuma";
+
+export interface ChaveGeminiStatus {
+  origem: OrigemChaveGemini;
+  chave_mascarada: string | null;
+}
+
+export interface TesteChaveGemini {
+  ok: boolean;
+  mensagem: string | null;
+}
+
 export interface Classificacao {
   flag: FlagClassificacao;
   origem: OrigemClassificacao;
@@ -395,6 +407,8 @@ export const api = {
     request<User>("/api/auth/me/gemini-model", { method: "PUT", body: JSON.stringify({ model }) }),
   removerModeloGemini: () => request<User>("/api/auth/me/gemini-model", { method: "DELETE" }),
   listarModelosGemini: () => request<ModeloGemini[]>("/api/auth/me/gemini-models"),
+  statusChaveGemini: () => request<ChaveGeminiStatus>("/api/auth/me/gemini-key/status"),
+  testarChaveGemini: () => request<TesteChaveGemini>("/api/auth/me/gemini-key/testar", { method: "POST" }),
 
   listarProcedimentos: () => request<ProcedimentoListItem[]>("/api/procedimentos"),
   obterProcedimento: (id: string, lang: string) =>

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ModeloGemini, User } from "../api";
+import { api, ChaveGeminiStatus, ModeloGemini, User } from "../api";
 import { useLanguage } from "../i18n";
 
 export function MinhaConta({
@@ -23,14 +23,35 @@ export function MinhaConta({
   const [carregandoModelos, setCarregandoModelos] = useState(true);
   const [erroModelos, setErroModelos] = useState<string | null>(null);
 
+  const [statusChave, setStatusChave] = useState<ChaveGeminiStatus | null>(null);
+  const [testando, setTestando] = useState(false);
+  const [resultadoTeste, setResultadoTeste] = useState<{ ok: boolean; mensagem: string | null } | null>(null);
+
+  function recarregarStatusChave() {
+    api.statusChaveGemini().then(setStatusChave).catch(() => setStatusChave(null));
+  }
+
   useEffect(() => {
     api
       .listarModelosGemini()
       .then(setModelosDisponiveis)
       .catch(() => setErroModelos(t("minhaConta.modeloErroListar")))
       .finally(() => setCarregandoModelos(false));
+    recarregarStatusChave();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function testarChave() {
+    setTestando(true);
+    setResultadoTeste(null);
+    try {
+      setResultadoTeste(await api.testarChaveGemini());
+    } catch {
+      setResultadoTeste({ ok: false, mensagem: t("minhaConta.chaveTesteErro") });
+    } finally {
+      setTestando(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -41,6 +62,8 @@ export function MinhaConta({
       onUserAtualizado(atualizado);
       setApiKey("");
       setSalvo(true);
+      setResultadoTeste(null);
+      recarregarStatusChave();
       window.setTimeout(() => setSalvo(false), 3000);
     } catch {
       setErro(t("minhaConta.erroSalvar"));
@@ -54,6 +77,8 @@ export function MinhaConta({
     try {
       const atualizado = await api.removerChaveGemini();
       onUserAtualizado(atualizado);
+      setResultadoTeste(null);
+      recarregarStatusChave();
     } finally {
       setRemovendo(false);
     }
@@ -91,6 +116,32 @@ export function MinhaConta({
           <p className="alert alert-warning" style={{ marginBottom: 16 }}>
             {t("minhaConta.semChave")}
           </p>
+        )}
+
+        {statusChave && (
+          <div className="field-box" style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <span className="muted" style={{ fontSize: 13 }}>
+              {t("minhaConta.chaveEmUso")} <code>{statusChave.chave_mascarada ?? t("minhaConta.chaveOrigemNenhuma")}</code>
+              {statusChave.chave_mascarada && (
+                <>
+                  {" "}
+                  (
+                  {statusChave.origem === "pessoal"
+                    ? t("minhaConta.chaveOrigemPessoal")
+                    : t("minhaConta.chaveOrigemAmbiente")}
+                  )
+                </>
+              )}
+            </span>
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => void testarChave()} disabled={testando || !statusChave.chave_mascarada}>
+              {testando ? t("minhaConta.chaveTestando") : t("minhaConta.chaveTestar")}
+            </button>
+            {resultadoTeste && (
+              <span className={resultadoTeste.ok ? "pill pill-ok" : "pill pill-warn"}>
+                {resultadoTeste.ok ? t("minhaConta.chaveTesteOk") : resultadoTeste.mensagem}
+              </span>
+            )}
+          </div>
         )}
 
         <form onSubmit={handleSubmit} className="form">
