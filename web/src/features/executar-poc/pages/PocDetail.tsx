@@ -1741,7 +1741,15 @@ function ItemRow({
                   ))}
                 </select>
               )}
-              <input type="file" onChange={(e) => setArquivoAnexo(e.target.files?.[0] ?? null)} />
+              <label className="btn btn-outline" style={{ cursor: "pointer" }}>
+                {t("common.escolherArquivo")}
+                <input
+                  type="file"
+                  hidden
+                  onChange={(e) => setArquivoAnexo(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <span className="muted">{arquivoAnexo?.name ?? t("common.nenhumArquivo")}</span>
               <button
                 className="btn btn-secondary"
                 onClick={enviarAnexo}

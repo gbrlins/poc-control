@@ -16,6 +16,7 @@ export function ProcedimentoUpload() {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [progresso, setProgresso] = useState(0);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -25,6 +26,7 @@ export function ProcedimentoUpload() {
     }
     setErro(null);
     setEnviando(true);
+    setProgresso(0);
     try {
       const form = new FormData();
       form.append("titulo", titulo);
@@ -33,7 +35,7 @@ export function ProcedimentoUpload() {
       form.append("cliente_origem", clienteOrigem);
       form.append("status", status);
       form.append("arquivo", arquivo);
-      const criado = await api.criarProcedimento(form);
+      const criado = await api.criarProcedimentoComProgresso(form, setProgresso);
       navigate(`/procedures/${criado.id}`);
     } catch {
       setErro(t("procedimentoUpload.erroSalvar"));
@@ -118,16 +120,39 @@ export function ProcedimentoUpload() {
           </div>
           <div className="field">
             <label htmlFor="arquivo">{t("procedimentoUpload.labelArquivo")}</label>
-            <input
-              id="arquivo"
-              type="file"
-              accept=".html,text/html"
-              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
-              required
-            />
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <label className="btn btn-outline" style={{ cursor: "pointer" }}>
+                {t("common.escolherArquivo")}
+                <input
+                  id="arquivo"
+                  type="file"
+                  accept=".html,text/html"
+                  hidden
+                  onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <span className="muted">{arquivo?.name ?? t("common.nenhumArquivo")}</span>
+            </div>
           </div>
           {erro && <p className="alert alert-error">{erro}</p>}
-          <button type="submit" className="btn btn-primary" disabled={enviando}>
+          {enviando && (
+            <div style={{ margin: "4px 0 12px" }}>
+              <div style={{ height: 8, borderRadius: 99, background: "var(--gray-100)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${progresso}%`,
+                    background: "var(--suse-base)",
+                    transition: "width 150ms",
+                  }}
+                />
+              </div>
+              <p className="field-hint" style={{ marginTop: 4 }}>
+                {t("procedimentoUpload.enviando")} {progresso}%
+              </p>
+            </div>
+          )}
+          <button type="submit" className="btn btn-primary" disabled={enviando || !arquivo}>
             {enviando ? t("procedimentoUpload.enviando") : t("procedimentoUpload.salvar")}
           </button>
         </form>

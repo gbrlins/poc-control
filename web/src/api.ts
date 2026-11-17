@@ -28,6 +28,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (texto ? JSON.parse(texto) : undefined) as T;
 }
 
+// fetch() não expõe progresso de envio (só de download) -- só o XMLHttpRequest tem
+// upload.onprogress. Usado só onde a barra de progresso importa de verdade (upload de arquivo
+// maior, ex. ProcedimentoUpload.tsx); o resto do app continua em request()/fetch.
+function uploadComProgresso<T>(path: string, form: FormData, onProgress: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve((xhr.responseText ? JSON.parse(xhr.responseText) : undefined) as T);
+        } catch {
+          reject(new ApiError(xhr.status, "Resposta inesperada do servidor"));
+        }
+        return;
+      }
+      const detail = (() => {
+        try {
+          return JSON.parse(xhr.responseText)?.detail;
+        } catch {
+          return undefined;
+        }
+      })();
+      reject(new ApiError(xhr.status, detail ?? "Erro inesperado"));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Falha de rede"));
+    xhr.send(form);
+  });
+}
+
 export interface User {
   id: string;
   email: string;
@@ -432,6 +466,8 @@ export const api = {
     request<ProcedimentoDetail>(`/api/procedimentos/${id}?lang=${lang}`),
   criarProcedimento: (form: FormData) =>
     request<ProcedimentoListItem>("/api/procedimentos", { method: "POST", body: form }),
+  criarProcedimentoComProgresso: (form: FormData, onProgress: (pct: number) => void) =>
+    uploadComProgresso<ProcedimentoListItem>("/api/procedimentos", form, onProgress),
   validarProcedimento: (id: string) =>
     request<{ id: string; status: string }>(`/api/procedimentos/${id}/validar`, { method: "POST" }),
 
