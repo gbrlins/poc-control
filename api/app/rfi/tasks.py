@@ -24,6 +24,13 @@ def _justificativa_interrompido(lang: str | None = None) -> str:
     return _JUSTIFICATIVA_INTERROMPIDO.get(lang or "pt", _JUSTIFICATIVA_INTERROMPIDO["pt"])
 
 
+_TITULO_PADRAO_RFI = {"pt": "RFI sem título", "en": "Untitled RFI", "es": "RFI sin título"}
+
+
+def _titulo_padrao_rfi(lang: str | None = None) -> str:
+    return _TITULO_PADRAO_RFI.get(lang or "pt", _TITULO_PADRAO_RFI["pt"])
+
+
 def iniciar_processamento(rfi: Rfi) -> None:
     """Marca o RFI como em processamento (também é o que bloqueia execuções concorrentes: os
     endpoints devolvem 409 enquanto estiver `extraindo`). Quem chama faz o commit."""
@@ -162,7 +169,7 @@ def processar_rfi(
         if rfi is None:
             return
         if not rfi.titulo:
-            rfi.titulo = "RFI sem título"
+            rfi.titulo = _titulo_padrao_rfi(lang)
         # Só vira `erro` se NENHUM documento deu certo; se algum falhou e outro não, o RFI fica
         # `pronto` com a mensagem em erro_extracao (o front mostra como aviso).
         rfi.erro_extracao = "\n".join(erros) or None

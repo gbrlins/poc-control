@@ -32,6 +32,13 @@ from app.pocs.resultados import sincronizar_resultado_catalogo
 
 logger = logging.getLogger(__name__)
 
+_TITULO_PADRAO_POC = {"pt": "PoC sem título", "en": "Untitled PoC", "es": "PoC sin título"}
+
+
+def _titulo_padrao_poc(lang: str | None = None) -> str:
+    return _TITULO_PADRAO_POC.get(lang or "pt", _TITULO_PADRAO_POC["pt"])
+
+
 _PRODUTOS_PLANEJADOR = (
     "virtualization",
     "rancher",
@@ -139,7 +146,7 @@ def _aplicar_extracao_gemini(
     # (importar_planejador), então não há risco de um 2º documento repetir esta parte.
     if hidratar_planejador:
         if not poc.titulo:
-            poc.titulo = extraido.titulo_sugerido or "PoC sem título"
+            poc.titulo = extraido.titulo_sugerido or _titulo_padrao_poc(lang)
         if not poc.cliente:
             poc.cliente = extraido.cliente_sugerido or ""
 
@@ -271,7 +278,7 @@ def processar_poc(
         if poc is None:
             return
         if not poc.titulo:
-            poc.titulo = "PoC sem título"
+            poc.titulo = _titulo_padrao_poc(lang)
         # Só vira `erro` se NENHUM documento deu certo; se algum falhou e outro não, a PoC fica
         # `pronto` com a mensagem em erro_extracao (o front mostra como aviso) -- igual ao RFI.
         poc.erro_extracao = "\n".join(erros) or None
