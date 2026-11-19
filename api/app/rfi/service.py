@@ -17,6 +17,7 @@ from app.gemini import (
     modelo_efetivo,
     pesquisar_atendimento_rfi,
 )
+from app.idioma import marcar, norm_idioma
 from app.models import OrigemClassificacao, RfiItem, VeredictoRfi
 
 _JUSTIFICATIVA_ERRO = {
@@ -27,7 +28,7 @@ _JUSTIFICATIVA_ERRO = {
 
 
 def _justificativa_erro(erro: str, lang: str | None = None) -> str:
-    return _JUSTIFICATIVA_ERRO.get(lang or "pt", _JUSTIFICATIVA_ERRO["pt"]).format(erro=erro)
+    return _JUSTIFICATIVA_ERRO[norm_idioma(lang)].format(erro=erro)
 
 
 def texto_item_rfi(item: RfiItem) -> str:
@@ -113,13 +114,12 @@ def _avaliar_por_historico(
 
     item.veredito = VeredictoRfi.atende
     item.justificativa = justificativa_historico(lang)
+    marcar(item, lang, "justificativa")
     item.fontes = []
     item.procedimento_id = None
     item.confirmado_por_historico = True
     item.origem = OrigemClassificacao.auto
     item.modelo = modelo_efetivo(model)
-    item.idioma_original = lang or "pt"
-    item.traducoes = {}
     atualizar_embedding_historico_rfi(db, item, api_key)
     db.commit()
     db.refresh(item)
@@ -154,9 +154,8 @@ def avaliar_item_rfi(
             # mantém o que já tinha: uma falha transiente não pode apagar uma resposta boa.
             item.veredito = VeredictoRfi.sem_evidencia
             item.justificativa = _justificativa_erro(interpretar_erro_gemini(exc), lang)
+            marcar(item, lang, "justificativa")
             item.origem = None
-            item.idioma_original = lang or "pt"
-            item.traducoes = {}
         item.etapa = None
         db.commit()
         raise
@@ -191,12 +190,11 @@ def _avaliar_item_rfi(
         procedimento_id, justificativa = confirmacao_interna
         item.veredito = VeredictoRfi.atende
         item.justificativa = justificativa
+        marcar(item, lang, "justificativa")
         item.procedimento_id = procedimento_id
         item.confirmado_por_historico = False
         item.origem = OrigemClassificacao.auto
         item.modelo = modelo_efetivo(model)
-        item.idioma_original = lang or "pt"
-        item.traducoes = {}
         # Mesmo com o procedimento confirmando (evidência mais forte, já destacada na UI -- ver
         # RfiItemRow), complementa com fontes da web em vez de pular a pesquisa de vez: só a
         # busca com grounding, sem a segunda chamada de classificação (o veredito já está
@@ -233,13 +231,12 @@ def _avaliar_item_rfi(
 
     item.veredito = veredito
     item.justificativa = avaliacao.justificativa
+    marcar(item, lang, "justificativa")
     item.fontes = [f.model_dump() for f in fontes]
     item.origem = OrigemClassificacao.auto
     item.procedimento_id = None
     item.confirmado_por_historico = False
     item.modelo = modelo_usado
-    item.idioma_original = lang or "pt"
-    item.traducoes = {}
     atualizar_embedding_historico_rfi(db, item, api_key)
 
     db.commit()

@@ -8,8 +8,10 @@ from google.genai import types
 from google.genai import errors as genai_errors
 from pydantic import BaseModel
 
+from app.idioma import norm_idioma
 from app.categorias import descricoes_formatadas
 from app.config import settings
+from app.url_real import resolver_urls
 
 logger = logging.getLogger(__name__)
 
@@ -79,42 +81,49 @@ def interpretar_erro_gemini(exc: Exception) -> str:
     """Traduz os erros mais comuns da API do Gemini pra uma mensagem acionável, em vez do
     dump cru da exceção (ex.: "503 UNAVAILABLE {'error': {...}}"), que é o que aparecia antes
     em erro_extracao e deixava o usuário sem saber se era pra tentar de novo, trocar a chave
-    ou reportar o bug."""
+    ou reportar o bug.
+
+    As mensagens saem em INGLÊS (idioma padrão do app); o front as mostra no idioma da tela por
+    web/src/mensagensServidor.ts, que também reconhece as versões em português já gravadas -- mantenha as duas em sincronia."""
     if isinstance(exc, httpx.TimeoutException):
         return (
-            f"O Gemini não respondeu em {_HTTP_TIMEOUT_MS // 1000}s (travou ou está muito lento "
-            "agora). Tente de novo ou com um documento menor."
+            f"Gemini did not answer within {_HTTP_TIMEOUT_MS // 1000}s (it hung or is very slow right now). "
+            "Try again or with a smaller document."
         )
     codigo = getattr(exc, "code", None)
     if codigo == 503:
         return (
-            "O Gemini está temporariamente sobrecarregado (alta demanda no modelo configurado). "
-            "Não é um problema com a sua chave de API — tente novamente em alguns minutos."
+            "Gemini is temporarily overloaded (high demand on the configured model). "
+            "It is not a problem with your API key — try again in a few minutes."
+        )
+    if codigo == 402:
+        return (
+            "The Gemini account's prepaid credits are depleted. Top up at aistudio.google.com "
+            "(Billing) and retry afterwards."
         )
     if codigo == 429:
         return (
-            "O limite de uso (quota) da chave de API do Gemini foi atingido. Aguarde um pouco "
-            "ou confira o plano da chave em aistudio.google.com."
+            "The usage limit (quota) of the Gemini API key was reached. Wait a moment "
+            "or check the key's plan at aistudio.google.com."
         )
     if codigo in (401, 403):
         return (
-            "A chave de API do Gemini foi recusada (inválida, revogada, ou sem permissão para "
-            "este modelo). Confira a chave cadastrada em Minha conta."
+            "The Gemini API key was rejected (invalid, revoked, or without permission for "
+            "this model). Check the key saved in My account."
         )
     if codigo == 404:
         return (
-            "O modelo do Gemini configurado não foi encontrado (nome errado, ou a chave não tem "
-            "acesso a ele). Confira o campo \"Modelo do Gemini\" em Minha conta."
+            "The configured Gemini model was not found (wrong name, or the key has no "
+            "access to it). Check the \"Gemini model\" field in My account."
         )
     if codigo == 500:
-        return "Erro interno do Gemini. Tente novamente em alguns instantes."
+        return "Internal Gemini error. Try again in a few moments."
     if codigo == 504:
         return (
-            "O Gemini demorou demais para gerar a resposta e o próprio serviço encerrou a "
-            "chamada (prazo esgotado do lado deles, não do nosso timeout). Tente novamente ou "
-            "com um documento menor."
+            "Gemini took too long to generate the answer and the service itself ended the "
+            "call (deadline on their side, not our timeout). Try again or with a smaller document."
         )
-    return f"Erro inesperado ao chamar o Gemini: {exc}"
+    return f"Unexpected error calling Gemini: {exc}"
 
 
 def _normalize(values: list[float]) -> list[float]:
@@ -172,11 +181,10 @@ _IDIOMAS_SITE = {"pt": "português (pt-BR)", "en": "inglês", "es": "espanhol"}
 
 
 def _nome_idioma(lang: str | None) -> str:
-    """Nome (em português, pra caber nas instruções abaixo, todas escritas em português) do
-    idioma em que o Gemini deve responder -- "pt"|"en"|"es", com fallback pra português pra
-    qualquer valor desconhecido. Branch v2: todo conteúdo gerado por IA segue o idioma da UI no
-    momento da chamada, em vez de sempre sair em português (ver CLAUDE.md)."""
-    return _IDIOMAS_SITE.get(lang or "pt", _IDIOMAS_SITE["pt"])
+    """Nome do idioma (em português, pra caber nas instruções, que são escritas em português) em que o Gemini deve responder: o código
+    pt|en|es; ausente ou desconhecido cai no idioma padrão (inglês, app/idioma.py). TODO texto escrito pela IA sai no idioma da tela de
+    quem acionou e é gravado com essa marca (`idiomas`); quem lê em outro idioma vê a tradução sob demanda (app/traducao_cache.py)."""
+    return _IDIOMAS_SITE[norm_idioma(lang)]
 
 _TRADUCAO_PROMPT = """\
 Você traduz o título e o HTML de um procedimento técnico (runbook de PoC) para outro idioma, preservando a estrutura.
@@ -226,55 +234,6 @@ def traduzir_procedimento_html(
     if isinstance(parsed, TraducaoProcedimento):
         return parsed
     return TraducaoProcedimento.model_validate_json(response.text)
-
-
-class TraducaoCampos(BaseModel):
-    textos: list[str]
-
-
-_TRADUCAO_CAMPOS_PROMPT = """\
-Traduza cada um dos textos abaixo para {idioma}, preservando a ordem e o sentido técnico. Não \
-traduza nomes de recursos técnicos, comandos, URLs, códigos ou identificadores literais dentro do \
-texto -- só a linguagem natural. Se um texto já estiver em {idioma}, devolva-o praticamente \
-inalterado (mesmo assim ele entra na resposta, na mesma posição).
-
-Textos (numerados, um por linha):
-{textos_numerados}
-
-Devolva exatamente {n} textos em "textos", na mesma ordem dos números acima.
-"""
-
-
-def traduzir_campos_texto(
-    textos: list[str], idioma_alvo: str, api_key: str | None = None, model: str | None = None
-) -> list[str]:
-    """Generaliza traduzir_procedimento_html pra uma lista de textos curtos (título, descrição,
-    justificativa, ...) em vez de um HTML inteiro -- usado por app/traducao.py::campos_no_idioma
-    pra Item/Classificacao/RfiItem (branch v2). Mantém a ordem (não pede de volta um dict com as
-    mesmas chaves porque response_schema do Gemini exige um schema fixo, incompatível com chaves
-    dinâmicas) -- quem chama remonta {chave: texto} casando pela posição."""
-    if not textos:
-        return []
-    numerados = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(textos))
-    response = _gerar_com_retry(
-        api_key=api_key,
-        contexto="traduzir_campos_texto",
-        model=model or _TEXT_MODEL,
-        contents=_TRADUCAO_CAMPOS_PROMPT.format(
-            idioma=_nome_idioma(idioma_alvo), textos_numerados=numerados, n=len(textos)
-        ),
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=TraducaoCampos,
-        ),
-    )
-    parsed = response.parsed
-    resultado = parsed if isinstance(parsed, TraducaoCampos) else TraducaoCampos.model_validate_json(response.text)
-    if len(resultado.textos) != len(textos):
-        raise ValueError(
-            f"Gemini devolveu {len(resultado.textos)} textos traduzidos, esperava {len(textos)}"
-        )
-    return resultado.textos
 
 
 class FaseExtraida(BaseModel):
@@ -427,7 +386,7 @@ def extrair_itens_poc(
     elif texto:
         conteudo = [texto]
     else:
-        raise ValueError("Informe pdf_bytes ou texto")
+        raise ValueError("Provide pdf_bytes or text")
     conteudo.append(_EXTRACAO_PROMPT.replace("{idioma_resposta}", _nome_idioma(lang)))
 
     response = _gerar_com_retry(
@@ -500,7 +459,7 @@ def extrair_projeto_planejador(
     elif texto:
         conteudo = [texto]
     else:
-        raise ValueError("Informe pdf_bytes ou texto")
+        raise ValueError("Provide pdf_bytes or text")
     conteudo.append((_EXTRACAO_PROMPT + _HIDRATACAO_PROMPT).replace("{idioma_resposta}", _nome_idioma(lang)))
 
     response = _gerar_com_retry(
@@ -584,7 +543,7 @@ def extrair_itens_rfi(
     elif texto:
         conteudo = [texto]
     else:
-        raise ValueError("Informe pdf_bytes ou texto")
+        raise ValueError("Provide pdf_bytes or text")
     conteudo.append(_EXTRACAO_RFI_PROMPT.replace("{idioma_resposta}", _nome_idioma(lang)))
 
     response = _gerar_com_retry(
@@ -667,6 +626,19 @@ class FonteEvidencia(BaseModel):
     url: str
 
 
+def _fontes_do_grounding(response) -> list["FonteEvidencia"]:
+    """Fontes do grounding do Google Search, já com a URL real (ver app/url_real.py)."""
+    candidate = response.candidates[0] if response.candidates else None
+    grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
+    brutas = []
+    for chunk in getattr(grounding, "grounding_chunks", None) or []:
+        web = getattr(chunk, "web", None)
+        if web is not None and web.uri:
+            brutas.append((web.title or web.uri, web.uri))
+    urls = resolver_urls([uri for _, uri in brutas])
+    return [FonteEvidencia(titulo=titulo, url=url) for (titulo, _), url in zip(brutas, urls)]
+
+
 _VIABILIDADE_PROMPT = """\
 Pesquise na web se o item de PoC abaixo é viável/suportado ou se há evidência explícita de que NÃO é \
 suportado. Responda em {idioma}, de forma objetiva, citando o que a pesquisa encontrou.
@@ -690,15 +662,7 @@ def pesquisar_viabilidade_web(
     )
     texto = response.text or ""
 
-    fontes: list[FonteEvidencia] = []
-    candidate = response.candidates[0] if response.candidates else None
-    grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
-    for chunk in getattr(grounding, "grounding_chunks", None) or []:
-        web = getattr(chunk, "web", None)
-        if web is not None and web.uri:
-            fontes.append(FonteEvidencia(titulo=web.title or web.uri, url=web.uri))
-
-    return texto, fontes
+    return texto, _fontes_do_grounding(response)
 
 
 class AvaliacaoViabilidade(BaseModel):
@@ -787,15 +751,7 @@ def pesquisar_implementacao_item(
     )
     texto = response.text or ""
 
-    fontes: list[FonteEvidencia] = []
-    candidate = response.candidates[0] if response.candidates else None
-    grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
-    for chunk in getattr(grounding, "grounding_chunks", None) or []:
-        web = getattr(chunk, "web", None)
-        if web is not None and web.uri:
-            fontes.append(FonteEvidencia(titulo=web.title or web.uri, url=web.uri))
-
-    return texto, fontes
+    return texto, _fontes_do_grounding(response)
 
 
 class RascunhoProcedimento(BaseModel):
@@ -823,7 +779,8 @@ Resultado da pesquisa (documentação/procedimentos já publicados):
 \"\"\"
 
 Escreva o procedimento em HTML, em {idioma}, seguindo ESTRITAMENTE esta estrutura (mesma \
-convenção dos procedimentos validados já existentes na base):
+convenção dos procedimentos validados já existentes na base; traduza os rótulos fixos "Passo", "Esperado", \
+"Se der erro", "Limpeza" e "Evidências para o relatório" para esse idioma, mantendo a mesma estrutura):
 - Um <h2> de objetivo/contexto no início, explicando o que será feito e por quê.
 - Passos numerados, cada um num <h2> ou <h3> próprio (ex.: "Passo 1: ..."), com os comandos/\
 configurações necessários e, ao final de cada passo, uma linha "Esperado: ..." descrevendo como \
@@ -908,15 +865,7 @@ def pesquisar_atendimento_rfi(
     )
     texto = response.text or ""
 
-    fontes: list[FonteEvidencia] = []
-    candidate = response.candidates[0] if response.candidates else None
-    grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
-    for chunk in getattr(grounding, "grounding_chunks", None) or []:
-        web = getattr(chunk, "web", None)
-        if web is not None and web.uri:
-            fontes.append(FonteEvidencia(titulo=web.title or web.uri, url=web.uri))
-
-    return texto, fontes
+    return texto, _fontes_do_grounding(response)
 
 
 class AvaliacaoAtendimentoRfi(BaseModel):
@@ -1026,7 +975,7 @@ Contexto da sessão:
 {contexto}
 \"\"\"
 
-Escreva um texto em {idioma}, tom formal e neutro, pronto para colar num e-mail, estruturado em:
+Escreva um texto em {idioma}, tom formal e neutro, pronto para colar num e-mail, estruturado em (traduza os rótulos entre aspas para esse idioma):
 - Um parágrafo breve de abertura mencionando a data da sessão.
 - "Hoje realizamos": o que foi feito, testado ou resolvido.
 - "Pendências": o que ficou com falha, bloqueado ou pendente (omita esta seção se não houver nada).
@@ -1037,9 +986,7 @@ Não invente informação que não esteja no contexto. Não assine o e-mail nem 
 """
 
 
-def gerar_resumo_email(
-    contexto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
-) -> str:
+def gerar_resumo_email(contexto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None) -> str:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="gerar_resumo_email",
@@ -1071,9 +1018,7 @@ como "[Seu nome]".
 """
 
 
-def gerar_resumo_executivo(
-    contexto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None
-) -> str:
+def gerar_resumo_executivo(contexto: str, api_key: str | None = None, model: str | None = None, lang: str | None = None) -> str:
     response = _gerar_com_retry(
         api_key=api_key,
         contexto="gerar_resumo_executivo",
@@ -1081,3 +1026,34 @@ def gerar_resumo_executivo(
         contents=_RESUMO_EXECUTIVO_PROMPT.format(contexto=contexto, idioma=_nome_idioma(lang)),
     )
     return response.text or ""
+
+
+class TraducaoTextos(BaseModel):
+    textos: list[str]
+
+
+_TRADUCAO_TEXTOS_PROMPT = """Traduza cada texto da lista abaixo para {idioma_alvo}. São textos curtos de uma análise técnica \
+(produtos SUSE, requisitos de edital, itens de uma PoC): títulos, descrições, critérios de aceite, categorias e justificativas. Mantenha o sentido, o tom objetivo, nomes de produtos, códigos, números de peça e URLs exatamente \
+como estão. Devolva a MESMA quantidade de textos, na MESMA ordem, sem acrescentar nem remover nada.
+
+Textos (JSON):
+{textos}
+"""
+
+
+def traduzir_textos(textos: list[str], idioma_alvo: str, api_key: str | None = None, model: str | None = None) -> list[str]:
+    """Traduz uma lista de textos curtos numa chamada só (usado para exibir no idioma da tela os textos que a IA escreveu e os itens da PoC/RFI, com cache por
+    item). Levanta ValueError se a resposta não tiver o mesmo tamanho: quem chama cai no texto original."""
+    import json as _json
+
+    response = _gerar_com_retry(
+        api_key=api_key,
+        contexto="traduzir_textos",
+        model=model or _TEXT_MODEL,
+        contents=[_TRADUCAO_TEXTOS_PROMPT.format(idioma_alvo=_IDIOMAS_SITE[idioma_alvo], textos=_json.dumps(textos, ensure_ascii=False))],
+        config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=TraducaoTextos),
+    )
+    parsed = response.parsed if isinstance(response.parsed, TraducaoTextos) else TraducaoTextos.model_validate_json(response.text)
+    if len(parsed.textos) != len(textos):
+        raise ValueError(f"tradução devolveu {len(parsed.textos)} textos para {len(textos)}")
+    return parsed.textos

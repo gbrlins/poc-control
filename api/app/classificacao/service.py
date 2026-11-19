@@ -2,6 +2,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from app.idioma import marcar, norm_idioma
 from app.gemini import (
     CandidatoProcedimento,
     classificar_viabilidade,
@@ -45,7 +46,7 @@ _JUSTIFICATIVA_HISTORICO = {
 
 
 def justificativa_historico(lang: str | None = None) -> str:
-    return _JUSTIFICATIVA_HISTORICO.get(lang or "pt", _JUSTIFICATIVA_HISTORICO["pt"])
+    return _JUSTIFICATIVA_HISTORICO[norm_idioma(lang)]
 
 
 _BAIXA_CONFIANCA = {
@@ -56,7 +57,7 @@ _BAIXA_CONFIANCA = {
 
 
 def _baixa_confianca(lang: str | None = None) -> str:
-    return _BAIXA_CONFIANCA.get(lang or "pt", _BAIXA_CONFIANCA["pt"])
+    return _BAIXA_CONFIANCA[norm_idioma(lang)]
 
 
 def texto_item(item: Item) -> str:
@@ -219,9 +220,7 @@ def _salvar_auto(
     classificacao.procedimento_id = procedimento_id
     classificacao.confirmado_por_historico = confirmado_por_historico
     classificacao.modelo = modelo
-    # Justificativa nova: idioma_original acompanha e o cache de tradução antigo fica obsoleto.
-    classificacao.idioma_original = lang or "pt"
-    classificacao.traducoes = {}
+    marcar(classificacao, lang, "justificativa")
 
     db.commit()
     db.refresh(classificacao)
@@ -305,8 +304,14 @@ def classificar_item(
         justificativa = f"{_baixa_confianca(lang)} {avaliacao.justificativa}".strip()
 
     return _salvar_auto(
-        db, item, flag=flag, justificativa=justificativa, fontes=fontes_dump, procedimento_id=None,
-        modelo=modelo_usado, lang=lang,
+        db,
+        item,
+        flag=flag,
+        justificativa=justificativa,
+        fontes=fontes_dump,
+        procedimento_id=None,
+        modelo=modelo_usado,
+        lang=lang,
     )
 
 

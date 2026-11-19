@@ -14,7 +14,7 @@ class RemotoErro(Exception):
 
 def cliente_remoto() -> httpx.Client:
     if not settings.sync_configurado:
-        raise RemotoErro("Sincronização não configurada (SYNC_SERVIDOR_URL/EMAIL/SENHA vazios)")
+        raise RemotoErro("Synchronization is not configured (SYNC_SERVIDOR_URL/EMAIL/SENHA are empty)")
     cliente = httpx.Client(base_url=settings.sync_servidor_url.rstrip("/"), timeout=30.0)
     try:
         resposta = cliente.post(
@@ -23,26 +23,26 @@ def cliente_remoto() -> httpx.Client:
         )
     except httpx.HTTPError as exc:
         cliente.close()
-        raise RemotoErro(f"Não foi possível conectar no servidor remoto: {exc}")
+        raise RemotoErro(f"Could not connect to the remote server: {exc}")
     if resposta.status_code != 200:
         cliente.close()
-        raise RemotoErro("Login no servidor remoto falhou (e-mail/senha configurados estão corretos?)")
+        raise RemotoErro("Login to the remote server failed (are the configured email/password correct?)")
     return cliente
 
 
 def listar_remotos(cliente: httpx.Client) -> list[dict]:
     resposta = cliente.get("/api/procedimentos")
     if resposta.status_code != 200:
-        raise RemotoErro("Não foi possível listar os procedimentos do servidor remoto")
+        raise RemotoErro("Could not list the procedures on the remote server")
     return resposta.json()
 
 
 def obter_remoto(cliente: httpx.Client, procedimento_id: str) -> dict:
     resposta = cliente.get(f"/api/procedimentos/{procedimento_id}")
     if resposta.status_code == 404:
-        raise RemotoErro("Procedimento não encontrado no servidor (removido entre listar e baixar?)")
+        raise RemotoErro("Procedure not found on the server (removed between listing and downloading?)")
     if resposta.status_code != 200:
-        raise RemotoErro("Não foi possível obter o procedimento do servidor remoto")
+        raise RemotoErro("Could not fetch the procedure from the remote server")
     return resposta.json()
 
 

@@ -7,6 +7,7 @@ import {
   Fase,
   FlagClassificacao,
   ItemPoc,
+  ItemUpdatePayload,
   PocDetail as PocDetailData,
   PocDocumentoOut,
   ProcedimentoDetail,
@@ -18,8 +19,12 @@ import { CODIGOS_CATEGORIA, rotuloCategoria } from "@/categorias";
 import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { DangerZone } from "@/components/DangerZone";
 import { ProcessamentoEmLote } from "@/components/ProcessamentoEmLote";
+import { ProgressoEnvio } from "@/components/ProgressoEnvio";
 import { HtmlFrame } from "@/HtmlFrame";
-import { useLanguage } from "@/i18n";
+import { acharProjetoDaPoc } from "@/features/planejar-poc/plannerStore";
+import { Lang, useLanguage } from "@/i18n";
+import { useAvisoAoSair, useRascunhoState } from "@/rascunhoUpload";
+import { traduzirMensagemServidor } from "@/mensagensServidor";
 import { toggleInSet } from "@/toggleInSet";
 import { formatElapsed, useElapsedSeconds } from "@/useElapsedSeconds";
 
@@ -84,11 +89,14 @@ function PocDocumentos({
   bloqueado: boolean;
   onMudou: () => void;
 }) {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const [enviando, setEnviando] = useState(false);
   const ocupado = enviando || bloqueado; // enquanto a PoC processa, a API recusa mudanças (409)
   const [erro, setErro] = useState<string | null>(null);
-  const [pendentes, setPendentes] = useState<File[]>([]);
+  // Arquivos escolhidos e ainda não enviados ficam na memória ao sair da tela e voltar (só somem ao recarregar a página).
+  const [pendentes, setPendentes] = useRascunhoState<File[]>(`poc-pendentes-${poc.id}`, []);
+  const [progresso, setProgresso] = useState(0);
+  useAvisoAoSair(pendentes.length > 0 && !enviando);
 
   async function executar(acao: () => Promise<unknown>) {
     setEnviando(true);
@@ -106,8 +114,9 @@ function PocDocumentos({
   function enviar() {
     const form = new FormData();
     pendentes.forEach((a) => form.append("arquivos", a));
+    setProgresso(0);
     void executar(async () => {
-      await api.adicionarDocumentosPoc(poc.id, form, lang);
+      await api.adicionarDocumentosPoc(poc.id, form, setProgresso);
       setPendentes([]);
     });
   }
@@ -140,7 +149,9 @@ function PocDocumentos({
         selectLabel={t("pocDetail.selecionarArquivos")}
         removeLabel={t("pocDetail.removerDocumento")}
         newBadgeLabel={t("pocDetail.novo")}
+        pendingHint={t("common.arquivosNaoEnviados")}
       />
+      {enviando && pendentes.length > 0 && <ProgressoEnvio pct={progresso} />}
       {pendentes.length > 0 && (
         <button
           type="button"
@@ -174,11 +185,26 @@ export function PocDetail() {
     api.listarProcedimentos().then(setProcedimentos).catch(() => {});
   }, []);
 
+  // The first request may wait on Gemini translating item texts and justifications written in another language (cached afterwards),
+  // so the page paints at once from a plain "orig" request (what is stored, untranslated) and the translated one replaces it when it arrives.
+  const traduzidoRef = useRef(false);
+
   function carregar() {
     if (!id) return;
+    let aplicado = false;
+    if (!traduzidoRef.current) {
+      api
+        .obterPoc(id, "orig")
+        .then((rapido) => {
+          if (!aplicado) setPoc(rapido);
+        })
+        .catch(() => undefined);
+    }
     api
-      .obterPoc(id, lang)
+      .obterPoc(id)
       .then((data) => {
+        aplicado = true;
+        traduzidoRef.current = true;
         setPoc(data);
         // Mesma condição unificada do RfiDetail.tsx: continua reconsultando enquanto a
         // extração roda OU enquanto sobrar item sem classificação -- cobre tanto a
@@ -195,6 +221,7 @@ export function PocDetail() {
   }
 
   useEffect(() => {
+    traduzidoRef.current = false;
     carregar();
     return () => {
       if (pollRef.current) window.clearTimeout(pollRef.current);
@@ -210,7 +237,7 @@ export function PocDetail() {
     if (!id) return;
     setClassificandoLote(true);
     try {
-      await api.classificarPendentes(id, lang);
+      await api.classificarPendentes(id);
       carregar();
     } finally {
       setClassificandoLote(false);
@@ -233,14 +260,14 @@ export function PocDetail() {
 
   function abrirRoteiro() {
     if (!poc || selecionados.size === 0) return;
-    window.open(api.urlRoteiro(poc.id, [...selecionados]), "_blank", "noreferrer");
+    window.open(api.urlRoteiro(poc.id, [...selecionados], lang), "_blank", "noreferrer");
   }
 
   async function tentarNovamente() {
     if (!id) return;
     setReextraindo(true);
     try {
-      await api.reextrairPoc(id, lang);
+      await api.reextrairPoc(id);
       carregar();
     } catch {
       setErro(t("pocDetail.erroReextrair"));
@@ -292,7 +319,7 @@ export function PocDetail() {
       <div className="poc-header">
         <div className="poc-header-top">
           <div>
-            <h1>{poc.titulo}</h1>
+            <h1>{traduzirMensagemServidor(poc.titulo, lang)}</h1>
             <div className="poc-sub">
               {poc.cliente} · {poc.itens.length} {t("pocDetail.itens")}
             </div>
@@ -304,7 +331,7 @@ export function PocDetail() {
         </div>
 
         <a
-          href={api.urlExportarPoc(poc.id)}
+          href={api.urlExportarPoc(poc.id, lang)}
           target="_blank"
           rel="noreferrer"
           className="btn btn-secondary"
@@ -312,6 +339,20 @@ export function PocDetail() {
         >
           {t("pocDetail.exportarStatus")}
         </a>
+        {/* The plan forms live in the planner (this browser only); if this PoC was planned elsewhere there is nothing to open. */}
+        {(() => {
+          const planoLocal = acharProjetoDaPoc(poc.id);
+          return planoLocal ? (
+            <Link
+              to={`/plan?open=${encodeURIComponent(planoLocal)}&readonly=1`}
+              className="btn btn-secondary"
+              style={{ display: "inline-block", marginTop: 12, marginLeft: 8 }}
+              title={t("home.acaoVerPlanoDica")}
+            >
+              {t("home.acaoVerPlano")}
+            </Link>
+          ) : null;
+        })()}
 
         {numerosFase.length > 0 && (
           <div className="phase-strip">
@@ -365,7 +406,7 @@ export function PocDetail() {
         <p className="alert alert-warning" style={{ whiteSpace: "pre-line" }}>
           {t("pocDetail.avisoExtracao")}
           {"\n"}
-          {poc.erro_extracao}
+          {traduzirMensagemServidor(poc.erro_extracao, lang)}
         </p>
       )}
       {poc.status_extracao === "pronto" && poc.modelo_extracao && (
@@ -375,7 +416,8 @@ export function PocDetail() {
       )}
       {poc.status_extracao === "erro" && (
         <p className="alert alert-error">
-          {t("pocDetail.erroExtracao")} {poc.erro_extracao ?? t("pocDetail.erroDesconhecido")}
+          {t("pocDetail.erroExtracao")}{" "}
+          {poc.erro_extracao ? traduzirMensagemServidor(poc.erro_extracao, lang) : t("pocDetail.erroDesconhecido")}
           <button
             className="btn btn-secondary"
             onClick={tentarNovamente}
@@ -596,8 +638,24 @@ type EntradaTimeline =
   | { tipo: "status"; created_at: string; codigo: string; anterior: StatusItem | null; novo: StatusItem }
   | { tipo: "nota"; created_at: string; codigo: string; texto: string };
 
+// The suggested prompt is text the person pastes into THEIR AI tool, so its language is their choice
+// (it defaults to the UI language). The summary they paste back is organized by Gemini in pt-BR
+// whatever language it is written in (api/app/gemini.py), so this only affects the AI tool's answer.
+const NOMES_IDIOMA: Record<Lang, string> = { pt: "Português", en: "English", es: "Español" };
+const PROMPT_SESSAO: Record<Lang, (cliente: string) => string> = {
+  pt: (c) =>
+    `Resuma a sessão de hoje da PoC ${c}: o que foi discutido e testado, o que foi resolvido, o que ficou com falha ou pendência, e quais são os próximos passos. Pode responder em texto corrido.`,
+  en: (c) =>
+    `Summarize today's session of the PoC for ${c}: what was discussed and tested, what was resolved, what failed or is still pending, and what the next steps are. Plain running text is fine.`,
+  es: (c) =>
+    `Resume la sesión de hoy de la PoC de ${c}: qué se discutió y probó, qué se resolvió, qué quedó con fallo o pendiente, y cuáles son los próximos pasos. Puedes responder en texto corrido.`,
+};
+
 function AndamentoTab({ poc, onSessaoCriada }: { poc: PocDetailData; onSessaoCriada: (s: Sessao) => void }) {
   const { t, lang } = useLanguage();
+  // null = follow the UI language (so switching the shell language also switches the default)
+  const [idiomaPrompt, setIdiomaPrompt] = useState<Lang | null>(null);
+  const idiomaDoPrompt: Lang = idiomaPrompt ?? lang;
   const STATUS_LABEL = statusLabels(t);
   const [data, setData] = useState("");
   const [participantes, setParticipantes] = useState("");
@@ -609,7 +667,7 @@ function AndamentoTab({ poc, onSessaoCriada }: { poc: PocDetailData; onSessaoCri
   const [importando, setImportando] = useState(false);
   const [erroImportar, setErroImportar] = useState<string | null>(null);
 
-  const promptSugerido = `Resuma a sessão de hoje da PoC ${poc.cliente}: o que foi discutido e testado, o que foi resolvido, o que ficou com falha ou pendência, e quais são os próximos passos. Pode responder em texto corrido.`;
+  const promptSugerido = PROMPT_SESSAO[idiomaDoPrompt](poc.cliente);
 
   async function copiarPrompt() {
     try {
@@ -624,7 +682,7 @@ function AndamentoTab({ poc, onSessaoCriada }: { poc: PocDetailData; onSessaoCri
     setErroImportar(null);
     setImportando(true);
     try {
-      const sessao = await api.importarSessao(poc.id, textoImportar.trim(), lang);
+      const sessao = await api.importarSessao(poc.id, textoImportar.trim());
       onSessaoCriada(sessao);
       setTextoImportar("");
     } catch {
@@ -711,7 +769,24 @@ function AndamentoTab({ poc, onSessaoCriada }: { poc: PocDetailData; onSessaoCri
         <strong>{t("andamentoTab.importarResumo")}</strong>
         <p className="field-hint">{t("andamentoTab.importarHint")}</p>
         <div className="field">
-          <label>{t("andamentoTab.promptSugerido")}</label>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <label>{t("andamentoTab.promptSugerido")}</label>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 400 }}>
+              {t("andamentoTab.idiomaPrompt")}
+              <select
+                className="input"
+                style={{ width: "auto" }}
+                value={idiomaDoPrompt}
+                onChange={(e) => setIdiomaPrompt(e.target.value as Lang)}
+              >
+                {(Object.keys(NOMES_IDIOMA) as Lang[]).map((l) => (
+                  <option key={l} value={l}>
+                    {NOMES_IDIOMA[l]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <textarea
             className="input"
             rows={2}
@@ -814,7 +889,7 @@ function ApresentacaoTab({
   async function gerar() {
     setGerando(true);
     try {
-      const { texto } = await api.gerarResumoExecutivo(poc.id, lang);
+      const { texto } = await api.gerarResumoExecutivo(poc.id);
       setResumo(texto);
       onResumoAtualizado(texto);
     } finally {
@@ -882,7 +957,7 @@ function ApresentacaoTab({
         </div>
       </div>
 
-      <a href={api.urlApresentacaoPoc(poc.id)} target="_blank" rel="noreferrer" className="btn btn-primary">
+      <a href={api.urlApresentacaoPoc(poc.id, lang)} target="_blank" rel="noreferrer" className="btn btn-primary">
         {t("apresentacaoTab.abrirApresentacao")}
       </a>
       <p className="field-hint" style={{ marginTop: 8 }}>
@@ -903,7 +978,7 @@ function SessaoCard({
   entradas: EntradaTimeline[];
   renderEntrada: (e: EntradaTimeline, i: number) => JSX.Element;
 }) {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const [gerando, setGerando] = useState(false);
   const [resumoEmail, setResumoEmail] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
@@ -912,7 +987,7 @@ function SessaoCard({
     setGerando(true);
     setResumoEmail(null);
     try {
-      const { texto } = await api.gerarResumoSessao(pocId, s.id, lang);
+      const { texto } = await api.gerarResumoSessao(pocId, s.id);
       setResumoEmail(texto);
     } finally {
       setGerando(false);
@@ -1204,7 +1279,7 @@ function ItemRow({
   async function reavaliar() {
     setReavaliando(true);
     try {
-      const atualizado = await api.classificarItem(pocId, item.id, lang);
+      const atualizado = await api.classificarItem(pocId, item.id);
       onAtualizado(atualizado);
       setFlagManual(atualizado.classificacao?.flag ?? "amarelo");
       setProcedimentoManual(atualizado.classificacao?.procedimento_id ?? "");
@@ -1218,7 +1293,7 @@ function ItemRow({
     setGerandoRascunho(true);
     setErroRascunho(null);
     try {
-      const atualizado = await api.gerarRascunhoItem(pocId, item.id, lang);
+      const atualizado = await api.gerarRascunhoItem(pocId, item.id);
       onAtualizado(atualizado);
     } catch (e) {
       setErroRascunho(e instanceof ApiError ? e.message : t("itemRow.erroGerarRascunho"));
@@ -1250,15 +1325,18 @@ function ItemRow({
   async function salvar() {
     setSalvando(true);
     try {
-      const atualizado = await api.atualizarItem(pocId, item.id, {
-        titulo,
-        descricao,
-        criterio_aceite: criterio,
-        categoria,
+      // Só os textos que a pessoa de fato mudou: fora do pt a tela mostra a TRADUÇÃO (app/traducao_cache.py), e reenviar
+      // um campo intocado gravaria essa tradução no lugar do original.
+      const payload: ItemUpdatePayload = {
         categoria_codigo: categoriaCodigo || null,
         fase,
         conducao: conducao || null,
-      });
+      };
+      if (titulo !== item.titulo) payload.titulo = titulo;
+      if (descricao !== (item.descricao ?? "")) payload.descricao = descricao;
+      if (criterio !== (item.criterio_aceite ?? "")) payload.criterio_aceite = criterio;
+      if (categoria !== (item.categoria ?? "")) payload.categoria = categoria;
+      const atualizado = await api.atualizarItem(pocId, item.id, payload);
       onAtualizado(atualizado);
       setEditandoModal(false);
     } finally {
@@ -1302,6 +1380,11 @@ function ItemRow({
           title={t("common.editar")}
           onClick={(e) => {
             e.stopPropagation();
+            // Reabre sempre a partir do que a tela mostra agora (o idioma pode ter mudado desde a montagem).
+            setTitulo(item.titulo);
+            setDescricao(item.descricao ?? "");
+            setCriterio(item.criterio_aceite ?? "");
+            setCategoria(item.categoria ?? "");
             setEditandoModal(true);
           }}
           type="button"

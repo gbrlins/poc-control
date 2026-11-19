@@ -3,20 +3,16 @@ from datetime import date
 
 from app.models import FlagClassificacao, Poc, StatusItem
 from app.pocs.roteiro import montar_ambiente_html
+from app.relatorio_i18n import fmt_data, html_lang, t
 
-_STATUS_LABEL = {
-    StatusItem.pendente: "Pendente",
-    StatusItem.em_andamento: "Em andamento",
-    StatusItem.concluido: "Concluído",
-    StatusItem.bloqueado: "Bloqueado",
-    StatusItem.nao_aplicavel: "N/A",
-}
+def _status_label(lang, status) -> str:
+    return t(lang, f"status.{status.value}")
 
-_FLAG_LABEL = {
-    FlagClassificacao.verde: "Validado",
-    FlagClassificacao.amarelo: "Em avaliação",
-    FlagClassificacao.vermelho: "Não suportado",
-}
+
+def _flag_label(lang, flag) -> str:
+    # Linguagem de cliente (Validado / Em avaliação / Não suportado), não as cores internas do semáforo.
+    return t(lang, f"flagcliente.{flag.value}")
+
 
 _FLAG_COLOR = {
     FlagClassificacao.verde: "#1f9a5e",
@@ -31,7 +27,7 @@ def _esc(valor: str | None) -> str:
     return html_lib.escape(valor or "")
 
 
-def montar_apresentacao_html(poc: Poc) -> str:
+def montar_apresentacao_html(poc: Poc, lang: str = "en") -> str:
     total = len(poc.itens)
     concluidos = sum(1 for i in poc.itens if i.status == StatusItem.concluido)
     pendentes = sum(1 for i in poc.itens if i.status in (StatusItem.bloqueado, StatusItem.pendente))
@@ -44,22 +40,22 @@ def montar_apresentacao_html(poc: Poc) -> str:
 
     blocos_fase = []
     for numero in sorted(por_fase):
-        titulo = fase_titulo.get(numero, f"Fase {numero}")
+        titulo = fase_titulo.get(numero, t(lang, "comum.fase", n=numero))
         linhas = []
         for item in sorted(por_fase[numero], key=lambda i: i.ordem):
             classificacao = item.classificacao
             if classificacao:
                 cor = _FLAG_COLOR[classificacao.flag]
-                flag_html = f'<span style="color:{cor};font-weight:600">{_FLAG_LABEL[classificacao.flag]}</span>'
+                flag_html = f'<span style="color:{cor};font-weight:600">{_flag_label(lang, classificacao.flag)}</span>'
             else:
                 flag_html = '<span style="color:#888">—</span>'
             linhas.append(
                 f"<tr><td>{_esc(item.codigo)}</td><td>{_esc(item.titulo)}</td>"
-                f"<td>{_STATUS_LABEL[item.status]}</td><td>{flag_html}</td></tr>"
+                f"<td>{_status_label(lang, item.status)}</td><td>{flag_html}</td></tr>"
             )
         blocos_fase.append(
             f"<h3>{_esc(titulo)}</h3>"
-            f'<table><thead><tr><th>Item</th><th>Descrição</th><th>Status</th><th>Viabilidade</th></tr></thead>'
+            f'<table><thead><tr><th>{t(lang, 'comum.item')}</th><th>{t(lang, 'apres.col_desc')}</th><th>{t(lang, 'comum.status')}</th><th>{t(lang, 'apres.col_viab')}</th></tr></thead>'
             f"<tbody>{''.join(linhas)}</tbody></table>"
         )
 
@@ -67,15 +63,15 @@ def montar_apresentacao_html(poc: Poc) -> str:
     timeline_blocos = []
     proximos_passos_geral: list[str] = []
     for s in sessoes_ordenadas:
-        bloco = f"<div class=\"sessao\"><h4>{s.data.strftime('%d/%m/%Y')}</h4>"
+        bloco = f"<div class=\"sessao\"><h4>{fmt_data(lang, s.data)}</h4>"
         if s.participantes:
-            bloco += f"<p class=\"muted\">Participantes: {_esc(', '.join(s.participantes))}</p>"
+            bloco += f"<p class=\"muted\">{t(lang, 'comum.participantes')}: {_esc(', '.join(s.participantes))}</p>"
         if s.agenda:
             bloco += f"<p>{_esc(s.agenda)}</p>"
         for rotulo, campo, cor in (
-            ("Resolvido", s.pontos_resolvidos, "#1f9a5e"),
-            ("Pendências", s.pontos_falha, "#92660a"),
-            ("Próximos passos", s.proximos_passos, "#2b6cb0"),
+            (t(lang, "comum.resolvido"), s.pontos_resolvidos, "#1f9a5e"),
+            (t(lang, "comum.pendencias"), s.pontos_falha, "#92660a"),
+            (t(lang, "comum.proximos_passos"), s.proximos_passos, "#2b6cb0"),
         ):
             if campo:
                 itens_html = "".join(f"<li>{_esc(p)}</li>" for p in campo)
@@ -85,20 +81,20 @@ def montar_apresentacao_html(poc: Poc) -> str:
         proximos_passos_geral.extend(s.proximos_passos)
 
     passos_unicos = list(dict.fromkeys(proximos_passos_geral))
-    passos_html = "".join(f"<li>{_esc(p)}</li>" for p in passos_unicos) or "<li>Nenhum próximo passo registrado.</li>"
+    passos_html = "".join(f"<li>{_esc(p)}</li>" for p in passos_unicos) or f"<li>{t(lang, 'apres.sem_passos')}</li>"
 
     resumo_paragrafos = "".join(
         f"<p>{_esc(p)}</p>" for p in (poc.resumo_executivo or "").split("\n") if p.strip()
-    ) or '<p class="muted">Sumário executivo ainda não foi gerado.</p>'
+    ) or f'<p class="muted">{t(lang, "apres.sumario_vazio")}</p>'
 
-    blocos_fase_html = "".join(blocos_fase) or '<p class="muted">Nenhum item cadastrado.</p>'
-    timeline_html = "".join(timeline_blocos) or '<p class="muted">Nenhuma sessão registrada.</p>'
+    blocos_fase_html = "".join(blocos_fase) or f'<p class="muted">{t(lang, "apres.sem_itens")}</p>'
+    timeline_html = "".join(timeline_blocos) or f'<p class="muted">{t(lang, "comum.sessoes_vazio")}</p>'
 
     return f"""<!doctype html>
-<html lang="pt-BR">
+<html lang="{html_lang(lang)}">
 <head>
 <meta charset="utf-8">
-<title>{_esc(poc.titulo)} — Apresentação ao cliente</title>
+<title>{_esc(poc.titulo)} — {t(lang, 'apres.titulo')}</title>
 <style>
   body {{ font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; max-width: 900px; margin: 0 auto; padding: 0 20px 60px; }}
   header {{ background: {_PINE}; color: #fff; margin: 0 -20px 32px; padding: 40px 20px; }}
@@ -123,29 +119,29 @@ def montar_apresentacao_html(poc: Poc) -> str:
 <body>
   <header>
     <h1>{_esc(poc.titulo)}</h1>
-    <div class="sub">{_esc(poc.cliente)} · Apresentação de resultados · {date.today().strftime('%d/%m/%Y')}</div>
+    <div class="sub">{_esc(poc.cliente)} · {t(lang, 'apres.sub')} · {fmt_data(lang, date.today())}</div>
   </header>
 
-  <h2>Sumário executivo</h2>
+  <h2>{t(lang, 'apres.sumario')}</h2>
   {resumo_paragrafos}
 
-  {montar_ambiente_html(poc)}
+  {montar_ambiente_html(poc, lang)}
 
-  <h2>Resultados em números</h2>
+  <h2>{t(lang, 'apres.numeros')}</h2>
   <div class="stat-grid">
-    <div class="stat"><b>{pct}%</b><span>concluído</span></div>
-    <div class="stat"><b>{concluidos}/{total}</b><span>itens concluídos</span></div>
-    <div class="stat"><b>{pendentes}</b><span>itens pendentes/bloqueados</span></div>
-    <div class="stat"><b>{len(poc.sessoes)}</b><span>sessões realizadas</span></div>
+    <div class="stat"><b>{pct}%</b><span>{t(lang, 'apres.concluido')}</span></div>
+    <div class="stat"><b>{concluidos}/{total}</b><span>{t(lang, 'apres.itens_concluidos')}</span></div>
+    <div class="stat"><b>{pendentes}</b><span>{t(lang, 'apres.itens_pendentes')}</span></div>
+    <div class="stat"><b>{len(poc.sessoes)}</b><span>{t(lang, 'apres.sessoes_realizadas')}</span></div>
   </div>
 
-  <h2>Resultados por fase</h2>
+  <h2>{t(lang, 'apres.por_fase')}</h2>
   {blocos_fase_html}
 
-  <h2>Linha do tempo das sessões</h2>
+  <h2>{t(lang, 'apres.linha_tempo')}</h2>
   {timeline_html}
 
-  <h2>Próximos passos</h2>
+  <h2>{t(lang, 'apres.proximos')}</h2>
   <ul>{passos_html}</ul>
 </body>
 </html>"""

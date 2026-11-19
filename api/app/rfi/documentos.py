@@ -19,7 +19,7 @@ def ler_conteudo(nome: str, conteudo: bytes) -> tuple[bytes | None, str | None]:
     """Devolve (pdf_bytes, texto): PDF vai nativo pro Gemini, o resto vira texto. Levanta
     ValueError com mensagem pro usuário se o arquivo não for legível."""
     if not conteudo:
-        raise ValueError(f"Arquivo vazio: {nome}")
+        raise ValueError(f"Empty file: {nome}")
     extensao = pathlib.Path(nome).suffix.lower()
     if extensao == ".pdf":
         return conteudo, None
@@ -31,8 +31,8 @@ def ler_conteudo(nome: str, conteudo: bytes) -> tuple[bytes | None, str | None]:
         return None, conteudo.decode("utf-8")
     except UnicodeDecodeError:
         raise ValueError(
-            f"Não foi possível ler {nome} como texto; envie um PDF, um Word (.docx), uma planilha "
-            "XLSX/CSV, ou um arquivo de texto em UTF-8"
+            f"Could not read {nome} as text; send a PDF, a Word file (.docx), an XLSX/CSV "
+            "spreadsheet, or a UTF-8 text file"
         )
     except ValueError as exc:
         raise ValueError(f"{nome}: {exc}")

@@ -70,6 +70,9 @@ export function Procedimentos() {
           </Link>
         </div>
       </div>
+      <p className="muted" style={{ marginTop: -8, marginBottom: 16, fontSize: 13 }}>
+        {t("procedimentos.dicaBiblioteca")} <Link to="/plan?view=library">{t("procedimentos.linkBiblioteca")}</Link>.
+      </p>
 
       {mostrarSync && itens && (
         <SincronizarProcedimentos

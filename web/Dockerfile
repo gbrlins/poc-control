@@ -4,8 +4,10 @@
 # monorepo this was synced from (see "Sync note" in CLAUDE.md / README.md).
 FROM docker.io/library/node:20-alpine AS build
 WORKDIR /app
-COPY web/package.json ./
-RUN npm install
+# package-lock.json + `npm ci`: the exact versions the lockfile pins, and a persistent npm cache so a release
+# (which changes "version" in package.json and so re-runs this layer) re-installs from cache, not the network.
+COPY web/package.json web/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY web/ .
 COPY poc-planner/index.html ./public/planner/index.html
 RUN npm run build

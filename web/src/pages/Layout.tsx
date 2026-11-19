@@ -47,12 +47,13 @@ export function Layout({ user, onLogout }: { user: User; onLogout: () => void })
 
   // Discreet footer indicator (spec 3.1): which Gemini key source is active, without ever
   // showing the key itself here -- the masked value + "Test key" live on Minha conta/My account.
+  // Reconsulta a cada troca de página: salvar ou remover a chave em Minha conta muda a origem, e o rodapé fica montado o tempo todo.
   useEffect(() => {
     api
       .statusChaveGemini()
       .then((s) => setChaveOrigem(s.origem))
       .catch(() => setChaveOrigem(null));
-  }, []);
+  }, [location.pathname]);
 
   // Only the planner's own iframe page needs the no-padding, fixed-height treatment (and skips
   // the Gemini-key banner, which wouldn't make sense floating over an iframe that has its own

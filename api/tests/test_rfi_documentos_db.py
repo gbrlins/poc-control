@@ -138,6 +138,21 @@ def test_remover_documento_leva_os_itens_e_o_arquivo(usuario, db):
     assert c.delete(f"/api/rfis/{rid}/documentos/{b['id']}").status_code == 404
 
 
+def test_baixar_documento_devolve_o_arquivo_original_e_nao_sai_da_pasta(usuario, db):
+    c = TestClient(app)
+    rid = _criar(c, ("a.txt", "1.1 conteudo original"))
+    doc = c.get(f"/api/rfis/{rid}").json()["documentos"][0]
+    r = c.get(f"/api/rfis/{rid}/documentos/{doc['id']}/download")
+    assert r.status_code == 200 and r.content == b"1.1 conteudo original"
+    assert "a.txt" in r.headers["content-disposition"]
+    # caminho adulterado no banco (fora da pasta deste RFI) não é servido
+    registro = db.query(Rfi).get(uuid.UUID(rid)).documentos[0]
+    registro.caminho_arquivo = "/etc/hostname"
+    db.commit()
+    assert c.get(f"/api/rfis/{rid}/documentos/{doc['id']}/download").status_code == 404
+    assert c.get(f"/api/rfis/{rid}/documentos/{uuid.uuid4()}/download").status_code == 404
+
+
 def test_reavaliar_pula_manuais_por_padrao(usuario, db, gemini_falso):
     c = TestClient(app)
     rid = _criar(c, ("a.txt", "1.1 x\n1.2 y"))
@@ -172,7 +187,7 @@ def test_falha_parcial_vira_aviso_e_falha_total_vira_erro(usuario):
     assert d["status_extracao"] == "pronto" and "ruim.txt" in d["erro_extracao"] and len(d["itens"]) == 1
     rid2 = _criar(c, ("ruim.txt", "QUEBRA"))
     d2 = c.get(f"/api/rfis/{rid2}").json()
-    assert d2["status_extracao"] == "erro" and d2["titulo"] == "RFI sem título"
+    assert d2["status_extracao"] == "erro" and d2["titulo"] == "Untitled RFI"
 
 
 def test_cancelar_marca_itens_pendentes_e_libera_o_rfi(usuario, db, monkeypatch):
@@ -196,7 +211,7 @@ def test_cancelar_marca_itens_pendentes_e_libera_o_rfi(usuario, db, monkeypatch)
     assert d["status_extracao"] == "pronto" and d["progresso"] is None and d["cancelamento_solicitado"] is False
     por_codigo = {i["codigo"]: i for i in d["itens"]}
     assert por_codigo["1.1"]["veredito"] == "atende"
-    assert por_codigo["1.2"]["veredito"] == "sem_evidencia" and "interrompida" in por_codigo["1.2"]["justificativa"]
+    assert por_codigo["1.2"]["veredito"] == "sem_evidencia" and "stopped" in por_codigo["1.2"]["justificativa"]
     assert d["itens_avaliados"] == d["total_itens"] == 3  # nada fica "processando" pra sempre
 
 
@@ -204,3 +219,21 @@ def test_cancelar_sem_processamento_da_409(usuario):
     c = TestClient(app)
     rid = _criar(c, ("a.txt", "1.1 x"))
     assert c.post(f"/api/rfis/{rid}/cancelar").status_code == 409
+
+
+def test_resolver_fontes_troca_o_redirecionamento_pelo_endereco_real(usuario, db, monkeypatch):
+    from app.rfi import router as rfi_router
+
+    c = TestClient(app)
+    rid = _criar(c, ("a.txt", "1.1 x"))
+    item = db.query(RfiItem).filter(RfiItem.rfi_id == rid).one()
+    redir = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc"
+    item.fontes = [{"titulo": "suse.com", "url": redir}, {"titulo": "outro", "url": "https://exemplo.com/x"}]
+    db.commit()
+    monkeypatch.setattr(rfi_router, "resolver_urls", lambda urls: ["https://documentation.suse.com/real" for _ in urls])
+    assert c.post(f"/api/rfis/{rid}/fontes/resolver").json() == {"atualizados": 1}
+    db.expire_all()
+    fontes = db.query(RfiItem).filter(RfiItem.rfi_id == rid).one().fontes
+    assert fontes[0] == {"titulo": "suse.com", "url": "https://documentation.suse.com/real"}
+    assert fontes[1]["url"] == "https://exemplo.com/x"
+    assert c.post(f"/api/rfis/{rid}/fontes/resolver").json() == {"atualizados": 0}   # idempotente

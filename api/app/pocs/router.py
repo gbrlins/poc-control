@@ -18,10 +18,12 @@ from app.classificacao.service import (
 from app.classificacao.tasks import classificar_pendentes
 from app.config import settings
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, ui_lang
+from app.idioma import marcar, marcar_campo
 from app.gemini import extrair_resumo_sessao, gerar_resumo_email, gerar_resumo_executivo
 from app.gemini_key import resolve_api_key, resolve_model
-from app.traducao import campos_no_idioma
+from app.relatorio_visao import cabecalho_para_relatorio, itens_para_relatorio, poc_para_relatorio
+from app.pocs.traducao import LISTAS_DA_SESSAO, TextosDaSessao, itens_no_idioma, justificativas_no_idioma
 from app.models import (
     Anexo,
     Classificacao,
@@ -118,20 +120,20 @@ def _list_item(db: Session, poc: Poc) -> PocListItem:
 def _get_poc_or_404(db: Session, poc_id: uuid.UUID) -> Poc:
     poc = db.get(Poc, poc_id)
     if poc is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "PoC não encontrada")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "PoC not found")
     return poc
 
 
 def _get_item_or_404(db: Session, poc_id: uuid.UUID, item_id: uuid.UUID) -> Item:
     item = db.get(Item, item_id)
     if item is None or item.poc_id != poc_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     return item
 
 
 def _exigir_ocioso(poc: Poc) -> None:
     if poc.status_extracao == StatusExtracao.extraindo:
-        raise HTTPException(status.HTTP_409_CONFLICT, "A PoC ainda está sendo processada; aguarde terminar")
+        raise HTTPException(status.HTTP_409_CONFLICT, "The PoC is still being processed; wait for it to finish")
 
 
 def _documento_out(db: Session, doc: PocDocumento) -> PocDocumentoOut:
@@ -191,7 +193,7 @@ def _criar_poc_de_entrada(
     (já conhecidos vs. a extrair) e em qual extração o background task vai rodar."""
     docs = _ler_uploads(arquivos, texto)
     if not docs:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie o PDF da POC, ou cole/envie o plano de testes em texto/JSON")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Upload the PoC PDF, or paste/upload the test plan as text/JSON")
 
     poc = Poc(
         titulo=titulo,
@@ -219,9 +221,9 @@ def criar_poc(
     escopo: str = Form(""),
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
-    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     # Entrada aceita PDF(s) (upload original, lido nativamente pelo Gemini) e/ou texto/JSON/XLSX/CSV
     # — este último grupo cobre colar o plano de testes em texto, subir o JSON exportado pelo
@@ -236,12 +238,7 @@ def criar_poc(
     )
 
     background_tasks.add_task(
-        processar_poc,
-        poc.id,
-        [d.id for d in criados],
-        resolve_api_key(current_user),
-        resolve_model(current_user),
-        lang=lang,
+        processar_poc, poc.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user), lang=lang
     )
 
     return _list_item(db, poc)
@@ -252,9 +249,9 @@ def importar_planejador(
     background_tasks: BackgroundTasks,
     arquivo: UploadFile | None = File(None),
     texto: str | None = Form(None),
-    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Importação de documento a partir do assistente "Planejar PoC" (tela inicial do app, \
     botão "Importar documento do cliente", ou o botão "Habilitar execução desta PoC" no \
@@ -286,9 +283,9 @@ def adicionar_documentos(
     background_tasks: BackgroundTasks,
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
-    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Anexa documentos a uma PoC existente: extrai só os itens NOVOS (os existentes não são
     tocados). Mesmo desenho de app/rfi/router.py::adicionar_documentos."""
@@ -296,17 +293,12 @@ def adicionar_documentos(
     _exigir_ocioso(poc)
     docs = _ler_uploads(arquivos, texto)
     if not docs:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie ao menos um documento, ou cole o texto")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Upload at least one document, or paste the text")
     criados = [salvar_documento(db, poc, nome, conteudo) for nome, conteudo in docs]
     iniciar_processamento(poc)
     db.commit()
     background_tasks.add_task(
-        processar_poc,
-        poc.id,
-        [d.id for d in criados],
-        resolve_api_key(current_user),
-        resolve_model(current_user),
-        lang=lang,
+        processar_poc, poc.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user), lang=lang
     )
     return _list_item(db, poc)
 
@@ -319,7 +311,7 @@ def remover_documento(poc_id: uuid.UUID, documento_id: uuid.UUID, db: Session = 
     _exigir_ocioso(poc)
     doc = db.get(PocDocumento, documento_id)
     if doc is None or doc.poc_id != poc_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
     # Remove os itens explicitamente (não só pelo ON DELETE CASCADE do banco): o ORM não tem
     # relationship Documento->Itens, então só assim a sessão fica consistente.
     db.query(Item).filter(Item.documento_id == doc.id).delete(synchronize_session=False)
@@ -336,51 +328,43 @@ def cancelar_processamento(poc_id: uuid.UUID, db: Session = Depends(get_db)):
     desenho de app/rfi/router.py::cancelar_processamento."""
     poc = _get_poc_or_404(db, poc_id)
     if poc.status_extracao != StatusExtracao.extraindo:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Não há processamento em andamento nesta PoC")
+        raise HTTPException(status.HTTP_409_CONFLICT, "No processing is running for this PoC")
     poc.cancelamento_solicitado = True
     db.commit()
     return _list_item(db, poc)
 
 
-def _traduzir_item_out(db: Session, item: Item, item_out: ItemOut, lang: str, api_key: str | None) -> None:
-    """Sobrescreve os campos textuais de um ItemOut (já convertido do ORM -- mutar esta cópia
-    Pydantic nunca arrisca persistir o texto traduzido na linha real) com a tradução sob demanda,
-    pra `lang`. Branch v2 -- ver app/traducao.py::campos_no_idioma, migração 0031."""
-    campos = {
-        chave: valor
-        for chave, valor in {
-            "titulo": item_out.titulo, "descricao": item_out.descricao,
-            "criterio_aceite": item_out.criterio_aceite, "categoria": item_out.categoria,
-        }.items()
-        if valor
-    }
-    if campos:
-        traduzidos = campos_no_idioma(db, item, lang, campos, api_key=api_key)
-        item_out.titulo = traduzidos.get("titulo", item_out.titulo)
-        item_out.descricao = traduzidos.get("descricao", item_out.descricao)
-        item_out.criterio_aceite = traduzidos.get("criterio_aceite", item_out.criterio_aceite)
-        item_out.categoria = traduzidos.get("categoria", item_out.categoria)
-    if item_out.classificacao is not None and item_out.classificacao.justificativa and item.classificacao is not None:
-        traduzida = campos_no_idioma(
-            db, item.classificacao, lang, {"justificativa": item_out.classificacao.justificativa}, api_key=api_key
-        )
-        item_out.classificacao.justificativa = traduzida.get("justificativa", item_out.classificacao.justificativa)
+def _itens_out(db: Session, itens: list[Item], lang: str, user: User) -> list[ItemOut]:
+    """Itens prontos para a tela. Fora do pt, os textos do item (título, descrição, critério, categoria) e a justificativa que a IA escreveu na
+    classificação vêm traduzidos (com cache), ver app/traducao_cache.py. O banco guarda sempre o original."""
+    chave, modelo = resolve_api_key(user), resolve_model(user)
+    traduzidas = justificativas_no_idioma(db, [i.classificacao for i in itens if i.classificacao], lang, chave, modelo)
+    textos = itens_no_idioma(db, itens, lang, chave, modelo)
+    out = []
+    for i in itens:
+        item = ItemOut.model_validate(i)
+        if i.id in textos:
+            item = item.model_copy(update=textos[i.id])
+        if i.classificacao is not None and i.classificacao.id in traduzidas and item.classificacao is not None:
+            item = item.model_copy(
+                update={"classificacao": item.classificacao.model_copy(update={"justificativa": traduzidas[i.classificacao.id]})}
+            )
+        out.append(item)
+    return out
+
+
+def _item_out(db: Session, item: Item, lang: str, user: User) -> ItemOut:
+    return _itens_out(db, [item], lang, user)[0]
 
 
 @router.get("/{poc_id}", response_model=PocDetail)
 def obter_poc(
     poc_id: uuid.UUID,
-    lang: str = "pt",
     db: Session = Depends(get_db),
+    lang: str = Depends(ui_lang),
     current_user: User = Depends(get_current_user),
 ):
     poc = _get_poc_or_404(db, poc_id)
-    if lang not in ("pt", "en", "es"):
-        lang = "pt"
-    api_key = resolve_api_key(current_user)
-    itens_out = [ItemOut.model_validate(i) for i in poc.itens]
-    for item, item_out in zip(poc.itens, itens_out):
-        _traduzir_item_out(db, item, item_out, lang, api_key)
     return PocDetail(
         # Reaproveita _list_item (em vez de repetir campo a campo) -- é exatamente esse tipo de
         # duplicação que já deixou responsavel_id de fora daqui uma vez (ver test_exclusao_db.py
@@ -392,7 +376,7 @@ def obter_poc(
         resumo_executivo=poc.resumo_executivo,
         parametros_tecnicos=poc.parametros_tecnicos,
         fases=[FaseOut(**f) for f in (poc.fases or [])],
-        itens=itens_out,
+        itens=_itens_out(db, list(poc.itens), lang, current_user),
         prerequisitos=[PrerequisitoOut.model_validate(p) for p in poc.prerequisitos],
         sessoes=[SessaoOut.model_validate(s) for s in poc.sessoes],
         documentos=[_documento_out(db, d) for d in poc.documentos],
@@ -419,9 +403,9 @@ def definir_responsavel(
     poc = _get_poc_or_404(db, poc_id)
     novo = db.get(User, payload.responsavel_id)
     if novo is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     if not excl.pode_atribuir(current_user, poc, novo.id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Só o dono (ou um administrador) altera o responsável; uma PoC sem dono pode ser assumida.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the owner (or an administrator) changes the owner; a PoC without an owner can be claimed.")
     poc.responsavel_id = novo.id
     db.commit()
     return {"id": poc.id, "responsavel_id": poc.responsavel_id}
@@ -452,9 +436,9 @@ def excluir_poc(
 def reextrair_poc(
     poc_id: uuid.UUID,
     background_tasks: BackgroundTasks,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Tenta de novo a extração de itens de uma PoC cujo status_extracao ficou 'erro' (ex.: o
     Gemini respondeu 503 por sobrecarga) -- sem precisar recriar a PoC do zero. Só chega a `erro`
@@ -463,10 +447,10 @@ def reextrair_poc(
     poc = _get_poc_or_404(db, poc_id)
     if poc.status_extracao != StatusExtracao.erro:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Só é possível reprocessar uma PoC cuja extração falhou"
+            status.HTTP_400_BAD_REQUEST, "Only a PoC whose extraction failed can be reprocessed"
         )
     if not poc.documentos:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Esta PoC não tem documento original para reprocessar")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This PoC has no original document to reprocess")
 
     iniciar_processamento(poc)
     db.commit()
@@ -487,9 +471,15 @@ def reextrair_poc(
 
 
 @router.get("/{poc_id}/export", response_class=HTMLResponse)
-def exportar_poc(poc_id: uuid.UUID, db: Session = Depends(get_db)):
+def exportar_poc(
+    poc_id: uuid.UUID,
+    lang: str = Depends(ui_lang),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     poc = _get_poc_or_404(db, poc_id)
-    return HTMLResponse(montar_export_html(poc))
+    visao = poc_para_relatorio(db, poc, lang, resolve_api_key(current_user), resolve_model(current_user))
+    return HTMLResponse(montar_export_html(visao, lang))
 
 
 def _contexto_apresentacao(poc: Poc) -> str:
@@ -538,35 +528,54 @@ def _contexto_apresentacao(poc: Poc) -> str:
 @router.post("/{poc_id}/apresentacao/resumo")
 def gerar_resumo_executivo_poc(
     poc_id: uuid.UUID,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     poc = _get_poc_or_404(db, poc_id)
     texto = gerar_resumo_executivo(
-        _contexto_apresentacao(poc), api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang
+        _contexto_apresentacao(poc),
+        api_key=resolve_api_key(current_user),
+        model=resolve_model(current_user),
+        lang=lang,
     )
     poc.resumo_executivo = texto
+    marcar(poc, lang, "resumo_executivo")
     db.commit()
     return {"texto": texto}
 
 
 @router.patch("/{poc_id}/apresentacao/resumo")
-def salvar_resumo_executivo_poc(poc_id: uuid.UUID, payload: ResumoExecutivoUpdate, db: Session = Depends(get_db)):
+def salvar_resumo_executivo_poc(
+    poc_id: uuid.UUID, payload: ResumoExecutivoUpdate, db: Session = Depends(get_db), lang: str = Depends(ui_lang)
+):
     poc = _get_poc_or_404(db, poc_id)
     poc.resumo_executivo = payload.resumo_executivo
+    marcar(poc, lang, "resumo_executivo")  # texto de uma pessoa, no idioma da tela dela
     db.commit()
     return {"texto": poc.resumo_executivo}
 
 
 @router.get("/{poc_id}/apresentacao", response_class=HTMLResponse)
-def exportar_apresentacao(poc_id: uuid.UUID, db: Session = Depends(get_db)):
+def exportar_apresentacao(
+    poc_id: uuid.UUID,
+    lang: str = Depends(ui_lang),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     poc = _get_poc_or_404(db, poc_id)
-    return HTMLResponse(montar_apresentacao_html(poc))
+    visao = poc_para_relatorio(db, poc, lang, resolve_api_key(current_user), resolve_model(current_user))
+    return HTMLResponse(montar_apresentacao_html(visao, lang))
 
 
 @router.get("/{poc_id}/roteiro", response_class=HTMLResponse)
-def gerar_roteiro(poc_id: uuid.UUID, item_ids: list[uuid.UUID] = Query(...), db: Session = Depends(get_db)):
+def gerar_roteiro(
+    poc_id: uuid.UUID,
+    item_ids: list[uuid.UUID] = Query(...),
+    lang: str = Depends(ui_lang),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Roteiro do dia: para os itens marcados (checklist na aba "Andamento"), monta uma página
     imprimível com os procedimentos vinculados já na ordem de execução (fase, depois ordem),
     precedida pelos parâmetros técnicos desta PoC (rede/infra) quando vieram do Planejar PoC.
@@ -576,8 +585,11 @@ def gerar_roteiro(poc_id: uuid.UUID, item_ids: list[uuid.UUID] = Query(...), db:
     ids_selecionados = set(item_ids)
     itens_selecionados = [i for i in poc.itens if i.id in ids_selecionados]
     if not itens_selecionados:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Selecione ao menos um item")
-    return HTMLResponse(montar_roteiro_html(poc, itens_selecionados))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Select at least one item")
+    chave, modelo = resolve_api_key(current_user), resolve_model(current_user)
+    # Só os itens marcados são traduzidos (e o corpo dos procedimentos vinculados a eles), não a PoC inteira.
+    itens_visao = itens_para_relatorio(db, itens_selecionados, lang, chave, modelo, com_conteudo=True)
+    return HTMLResponse(montar_roteiro_html(cabecalho_para_relatorio(poc, lang), itens_visao, lang))
 
 
 @router.patch("/{poc_id}/itens/{item_id}", response_model=ItemOut)
@@ -587,6 +599,7 @@ def atualizar_item(
     payload: ItemUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     item = _get_item_or_404(db, poc_id, item_id)
     dados = payload.model_dump(exclude_unset=True)
@@ -599,6 +612,10 @@ def atualizar_item(
     resultado_anterior = item.resultado
     for campo, valor in dados.items():
         setattr(item, campo, valor)
+    # Só os textos que a pessoa mudou passam a valer no idioma da tela dela; os demais seguem com a marca que tinham.
+    for campo in ("titulo", "descricao", "criterio_aceite", "categoria"):
+        if campo in dados:
+            marcar_campo(item, lang, campo)
 
     if "status" in dados and dados["status"] != status_anterior:
         db.add(
@@ -619,7 +636,7 @@ def atualizar_item(
 
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.delete("/{poc_id}/itens/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -633,23 +650,23 @@ def remover_item(poc_id: uuid.UUID, item_id: uuid.UUID, db: Session = Depends(ge
 def classificar_item_individual(
     poc_id: uuid.UUID,
     item_id: uuid.UUID,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     item = _get_item_or_404(db, poc_id, item_id)
     classificar_item(db, item, api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang)
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.post("/{poc_id}/itens/{item_id}/gerar-rascunho", response_model=ItemOut)
 def gerar_rascunho_item(
     poc_id: uuid.UUID,
     item_id: uuid.UUID,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Gera um rascunho de procedimento guiado por IA (pesquisa + redação do passo a passo, ver
     app/classificacao/service.py::gerar_rascunho_procedimento) pra um item amarelo sem nenhum
@@ -660,13 +677,13 @@ def gerar_rascunho_item(
     classificacao = item.classificacao
     if classificacao is None or classificacao.flag != FlagClassificacao.amarelo:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Só itens classificados como amarelo podem ganhar um rascunho guiado"
+            status.HTTP_400_BAD_REQUEST, "Only items classified as yellow can get a guided draft"
         )
     if classificacao.procedimento_id is not None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este item já tem um procedimento validado vinculado")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This item already has a validated procedure linked")
     if classificacao.procedimento_rascunho_id is not None:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Este item já tem um rascunho gerado -- exclua-o antes de gerar outro"
+            status.HTTP_400_BAD_REQUEST, "This item already has a generated draft -- delete it before generating another"
         )
 
     gerar_rascunho_procedimento(
@@ -679,7 +696,7 @@ def gerar_rascunho_item(
         lang=lang,
     )
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.get("/{poc_id}/itens/{item_id}/sugestoes-procedimento", response_model=list[ProcedimentoListItemOut])
@@ -696,7 +713,9 @@ def sugerir_procedimento_para_item(
 
 @router.patch("/{poc_id}/itens/{item_id}/classificacao", response_model=ItemOut)
 def sobrescrever_classificacao(
-    poc_id: uuid.UUID, item_id: uuid.UUID, payload: ClassificacaoManualUpdate, db: Session = Depends(get_db)
+    poc_id: uuid.UUID, item_id: uuid.UUID, payload: ClassificacaoManualUpdate, db: Session = Depends(get_db),
+    lang: str = Depends(ui_lang),
+    current_user: User = Depends(get_current_user),
 ):
     item = _get_item_or_404(db, poc_id, item_id)
 
@@ -708,6 +727,7 @@ def sobrescrever_classificacao(
     classificacao.flag = payload.flag
     classificacao.origem = OrigemClassificacao.manual
     classificacao.justificativa = payload.justificativa
+    marcar(classificacao, lang, "justificativa")  # texto de uma pessoa, no idioma da tela dela
     classificacao.procedimento_id = payload.procedimento_id
     classificacao.confirmado_por_historico = False
     classificacao.modelo = None
@@ -716,20 +736,20 @@ def sobrescrever_classificacao(
 
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.post("/{poc_id}/classificar-pendentes", status_code=status.HTTP_202_ACCEPTED)
 def classificar_pendentes_da_poc(
     poc_id: uuid.UUID,
     background_tasks: BackgroundTasks,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     _get_poc_or_404(db, poc_id)
     background_tasks.add_task(
-        classificar_pendentes, poc_id, resolve_api_key(current_user), resolve_model(current_user), lang=lang
+        classificar_pendentes, poc_id, resolve_api_key(current_user), resolve_model(current_user), lang
     )
     return {"status": "classificando"}
 
@@ -740,7 +760,7 @@ def atualizar_prerequisito(
 ):
     prereq = db.get(Prerequisito, prereq_id)
     if prereq is None or prereq.poc_id != poc_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Pré-requisito não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Prerequisite not found")
     prereq.atendido = payload.atendido
     db.commit()
     db.refresh(prereq)
@@ -761,9 +781,9 @@ def criar_sessao(poc_id: uuid.UUID, payload: SessaoCreate, db: Session = Depends
 def importar_sessao(
     poc_id: uuid.UUID,
     payload: SessaoImportar,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     _get_poc_or_404(db, poc_id)
     extraido = extrair_resumo_sessao(
@@ -784,6 +804,7 @@ def importar_sessao(
         pontos_falha=extraido.pontos_falha,
         proximos_passos=extraido.proximos_passos,
     )
+    marcar(TextosDaSessao(sessao), lang, *LISTAS_DA_SESSAO)
     db.add(sessao)
     db.commit()
     db.refresh(sessao)
@@ -793,7 +814,7 @@ def importar_sessao(
 def _get_sessao_or_404(db: Session, poc_id: uuid.UUID, sessao_id: uuid.UUID) -> Sessao:
     sessao = db.get(Sessao, sessao_id)
     if sessao is None or sessao.poc_id != poc_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sessão não encontrada")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
     return sessao
 
 
@@ -833,39 +854,42 @@ def _contexto_sessao(poc: Poc, sessao: Sessao) -> str:
 def obter_resumo_sessao(
     poc_id: uuid.UUID,
     sessao_id: uuid.UUID,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     poc = _get_poc_or_404(db, poc_id)
     sessao = _get_sessao_or_404(db, poc_id, sessao_id)
     texto = gerar_resumo_email(
-        _contexto_sessao(poc, sessao), api_key=resolve_api_key(current_user), model=resolve_model(current_user), lang=lang
+        _contexto_sessao(poc, sessao),
+        api_key=resolve_api_key(current_user),
+        model=resolve_model(current_user),
+        lang=lang,
     )
     return {"texto": texto}
 
 
 @router.post("/{poc_id}/itens/{item_id}/notas", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
-def criar_nota(poc_id: uuid.UUID, item_id: uuid.UUID, payload: NotaCreate, db: Session = Depends(get_db)):
+def criar_nota(poc_id: uuid.UUID, item_id: uuid.UUID, payload: NotaCreate, db: Session = Depends(get_db), lang: str = Depends(ui_lang), current_user: User = Depends(get_current_user)):
     item = _get_item_or_404(db, poc_id, item_id)
     if payload.sessao_id is not None:
         _get_sessao_or_404(db, poc_id, payload.sessao_id)
     db.add(Nota(item_id=item.id, sessao_id=payload.sessao_id, texto=payload.texto))
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.delete("/{poc_id}/itens/{item_id}/notas/{nota_id}", response_model=ItemOut)
-def remover_nota(poc_id: uuid.UUID, item_id: uuid.UUID, nota_id: uuid.UUID, db: Session = Depends(get_db)):
+def remover_nota(poc_id: uuid.UUID, item_id: uuid.UUID, nota_id: uuid.UUID, db: Session = Depends(get_db), lang: str = Depends(ui_lang), current_user: User = Depends(get_current_user)):
     item = _get_item_or_404(db, poc_id, item_id)
     nota = db.get(Nota, nota_id)
     if nota is None or nota.item_id != item.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nota não encontrada")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Note not found")
     db.delete(nota)
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.post("/{poc_id}/itens/{item_id}/anexos", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
@@ -875,6 +899,8 @@ def criar_anexo(
     sessao_id: uuid.UUID | None = Form(None),
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
+    lang: str = Depends(ui_lang),
+    current_user: User = Depends(get_current_user),
 ):
     item = _get_item_or_404(db, poc_id, item_id)
     if sessao_id is not None:
@@ -882,7 +908,7 @@ def criar_anexo(
 
     conteudo = arquivo.file.read()
     if not conteudo:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Arquivo vazio")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
 
     anexo_dir = pathlib.Path(settings.uploads_dir) / "pocs" / str(poc_id) / "anexos" / str(item_id)
     anexo_dir.mkdir(parents=True, exist_ok=True)
@@ -900,7 +926,7 @@ def criar_anexo(
     )
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.get("/{poc_id}/itens/{item_id}/anexos/{anexo_id}")
@@ -908,21 +934,21 @@ def baixar_anexo(poc_id: uuid.UUID, item_id: uuid.UUID, anexo_id: uuid.UUID, db:
     item = _get_item_or_404(db, poc_id, item_id)
     anexo = db.get(Anexo, anexo_id)
     if anexo is None or anexo.item_id != item.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Anexo não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     return FileResponse(anexo.caminho_arquivo, filename=anexo.nome_arquivo)
 
 
 @router.delete("/{poc_id}/itens/{item_id}/anexos/{anexo_id}", response_model=ItemOut)
-def remover_anexo(poc_id: uuid.UUID, item_id: uuid.UUID, anexo_id: uuid.UUID, db: Session = Depends(get_db)):
+def remover_anexo(poc_id: uuid.UUID, item_id: uuid.UUID, anexo_id: uuid.UUID, db: Session = Depends(get_db), lang: str = Depends(ui_lang), current_user: User = Depends(get_current_user)):
     item = _get_item_or_404(db, poc_id, item_id)
     anexo = db.get(Anexo, anexo_id)
     if anexo is None or anexo.item_id != item.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Anexo não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     pathlib.Path(anexo.caminho_arquivo).unlink(missing_ok=True)
     db.delete(anexo)
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)
 
 
 @router.post("/{poc_id}/itens/{item_id}/anexos/{anexo_id}/validar", response_model=ItemOut)
@@ -932,6 +958,7 @@ def validar_anexo(
     anexo_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Marca a caixinha "Validado" ao lado de um anexo: pega o conteúdo do arquivo (HTML direto,
     ou texto simples envolvido num HTML mínimo) e promove a um procedimento validado na
@@ -940,17 +967,17 @@ def validar_anexo(
     item = _get_item_or_404(db, poc_id, item_id)
     anexo = db.get(Anexo, anexo_id)
     if anexo is None or anexo.item_id != item.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Anexo não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     if anexo.procedimento_id is not None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este anexo já foi validado como procedimento")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This attachment was already validated as a procedure")
 
     caminho = pathlib.Path(anexo.caminho_arquivo)
     if not caminho.exists():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "O arquivo do anexo não foi encontrado em disco")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The attachment file was not found on disk")
     try:
         conteudo = caminho.read_text(encoding="utf-8")
     except (UnicodeDecodeError, ValueError):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Só é possível validar anexos de texto ou HTML")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only text or HTML attachments can be validated")
 
     if pathlib.Path(anexo.nome_arquivo).suffix.lower() in (".html", ".htm"):
         html = conteudo
@@ -977,4 +1004,4 @@ def validar_anexo(
     anexo.procedimento_id = procedimento.id
     db.commit()
     db.refresh(item)
-    return item
+    return _item_out(db, item, lang, current_user)

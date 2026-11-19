@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, RfiListItem } from "@/api";
 import { useLanguage } from "@/i18n";
+import { traduzirMensagemServidor } from "@/mensagensServidor";
 
 function scoreBadgeClass(score: number): string {
   if (score >= 70) return "badge-verde";
@@ -10,7 +11,7 @@ function scoreBadgeClass(score: number): string {
 }
 
 export function Rfis() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [itens, setItens] = useState<RfiListItem[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [filtroUsuario, setFiltroUsuario] = useState("");
@@ -118,7 +119,7 @@ export function Rfis() {
                 {filtrados.map((r) => (
                   <tr key={r.id}>
                     <td>
-                      <Link to={`/rfis/${r.id}`}>{r.titulo || t("rfis.semTitulo")}</Link>
+                      <Link to={`/rfis/${r.id}`}>{traduzirMensagemServidor(r.titulo, lang) || t("rfis.semTitulo")}</Link>
                       {r.orgao && <div className="muted" style={{ fontSize: 12 }}>{r.orgao}</div>}
                     </td>
                     <td className="muted">{r.numero_processo || "—"}</td>

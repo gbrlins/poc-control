@@ -111,7 +111,7 @@ def test_procedure_draft_contrato(monkeypatch):
 
     chamado = {}
 
-    def falso(db, titulo, esperado, produto, cliente, escopo, dono_id, api_key, model, lang):
+    def falso(db, titulo, esperado, produto, cliente, escopo, dono_id, api_key, model, lang=None):
         chamado.update(titulo=titulo, esperado=esperado, produto=produto, cliente=cliente, escopo=escopo, lang=lang)
         return Procedimento(
             id=uuid.uuid4(), titulo="Criar VM no Harvester (rascunho)", titulo_en="Create VM on Harvester (draft)",
@@ -124,7 +124,7 @@ def test_procedure_draft_contrato(monkeypatch):
     c = _cliente()
     body = {
         "test": {"id": "virt-vm-create", "product": "virtualization", "title": "Criar VM", "expected": "VM criada"},
-        "client": "Acme", "scope": "Substituição de VMware",
+        "client": "Acme", "scope": "Substituição de VMware", "lang": "en",
     }
     r = c.post("/api/planner/procedure-draft", json=body)
     assert r.status_code == 200
@@ -133,7 +133,7 @@ def test_procedure_draft_contrato(monkeypatch):
     assert j["idioma_original"] == "pt" and j["titulo_en"] == "Create VM on Harvester (draft)"
     assert chamado == {
         "titulo": "Criar VM", "esperado": "VM criada", "produto": "virtualization",
-        "cliente": "Acme", "escopo": "Substituição de VMware", "lang": "pt",
+        "cliente": "Acme", "escopo": "Substituição de VMware", "lang": "en",
     }
 
 

@@ -543,6 +543,12 @@ h2 {
   flex-direction: column;
 }
 
+/* Cards in the grid already get their spacing from `gap`; the generic `.card + .card` margin made the second one start lower. */
+.home-history-grid > .card,
+.home-history-grid > .card + .card {
+  margin-top: 0;
+}
+
 .home-history-card h3 {
   display: flex;
   align-items: center;
@@ -1510,4 +1516,37 @@ textarea.input {
 .shortcut-card span {
   font-size: 13px;
   color: var(--color-text-muted);
+}
+
+/* Home: unified projects/PoCs list */
+.home-projetos-card {
+  margin-bottom: 16px;
+}
+
+.home-projetos-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.home-projetos-head h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 900;
+  margin: 0 0 4px;
+}
+
+.home-projetos-actions,
+.home-projetos-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.home-projetos-row-actions {
+  justify-content: flex-end;
 }

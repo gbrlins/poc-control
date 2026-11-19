@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+from app.idioma import IDIOMAS
+
 
 def extrair_parametros_tecnicos(texto: str) -> dict[str, Any] | None:
     """Se o texto de entrada for o JSON exportado pelo Planejar PoC (botão "Exportar Projeto"
@@ -138,8 +140,11 @@ def itens_do_planejador(texto: str) -> dict[str, Any] | None:
     if not itens:
         return None
     return {
-        "titulo": _s(projeto.get("projectName"), 255) or "PoC sem título",
+        "titulo": _s(projeto.get("projectName"), 255) or "Untitled PoC",
         "cliente": _s(projeto.get("clientOrganization") or projeto.get("organization"), 255),
         "fases": fases,
         "itens": itens,
+        # Idioma da tela do planejador quando o plano foi enviado: é o idioma em que os títulos/resultados esperados foram resolvidos.
+        # Sem `lang` no JSON (planejador antigo) não há como saber: fica sem marca, ou seja, vale pt como todo texto anterior.
+        "idioma": estado.get("lang") if estado.get("lang") in IDIOMAS else None,
     }

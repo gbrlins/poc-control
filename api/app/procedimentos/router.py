@@ -14,6 +14,7 @@ from app.deps import get_current_user
 from app.gemini import embed_document, traduzir_procedimento_html
 from app.gemini_key import resolve_api_key
 from app.models import OrigemConhecimento, Procedimento, ProcedimentoChunk, StatusProcedimento, User
+from app.pocs.planner_import import _CATEGORIA_CODIGO_DO_PRODUTO  # produto do planejador -> código da taxonomia (mesma regra dos itens)
 from app.procedimentos.html_processing import extrair_secoes
 from app.procedimentos.schemas import ProcedimentoDetail, ProcedimentoListItem, SecaoOut
 
@@ -24,6 +25,21 @@ _IDIOMAS_SITE = ("pt", "en", "es")
 router = APIRouter(
     prefix="/api/procedimentos", tags=["procedimentos"], dependencies=[Depends(get_current_user)]
 )
+
+
+def _traducao_ansiosa_para_ingles(procedimento: Procedimento, html: str, titulo: str, api_key: str | None) -> None:
+    """Tradução ansiosa só pro inglês (as outras duas ficam preguiçosas, sob demanda -- ver _html_no_idioma): cobre o pedido mais
+    provável de quem não leu o original, sem gastar Gemini com um idioma que ninguém chegue a abrir. Também detecta o idioma do HTML.
+    Nunca derruba o upload/importação: se falhar (rede, quota), fica pra tentar de novo na primeira visualização. Não faz commit."""
+    try:
+        traducao = traduzir_procedimento_html(html, "en", titulo, api_key=api_key)
+        if traducao.idioma_detectado in _IDIOMAS_SITE:
+            procedimento.idioma_original = traducao.idioma_detectado
+        if procedimento.idioma_original != "en":
+            procedimento.traducoes = {"en": traducao.html_traduzido}
+        procedimento.titulo_en = traducao.titulo_traduzido[:255]
+    except Exception:
+        logger.warning("Falha ao traduzir procedimento %r para inglês", titulo, exc_info=True)
 
 
 def _criar_procedimento(
@@ -44,7 +60,7 @@ def _criar_procedimento(
 ) -> Procedimento:
     secoes = extrair_secoes(html)
     if not secoes:
-        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Nenhuma seção encontrada no HTML")
+        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "No sections found in the HTML")
 
     procedimento = Procedimento(
         titulo=titulo,
@@ -76,19 +92,7 @@ def _criar_procedimento(
             )
         )
 
-    # Tradução ansiosa só pro inglês (as outras duas ficam preguiçosas, sob demanda -- ver
-    # _html_no_idioma): cobre o pedido mais provável de quem não leu o original em português, sem
-    # gastar Gemini com um idioma que ninguém chegue a abrir. Nunca derruba o upload: se falhar
-    # (rede, quota), fica pra tentar de novo na primeira visualização.
-    try:
-        traducao = traduzir_procedimento_html(html, "en", titulo, api_key=api_key)
-        if traducao.idioma_detectado in _IDIOMAS_SITE:
-            procedimento.idioma_original = traducao.idioma_detectado
-        if procedimento.idioma_original != "en":
-            procedimento.traducoes = {"en": traducao.html_traduzido}
-        procedimento.titulo_en = traducao.titulo_traduzido[:255]
-    except Exception:
-        logger.warning("Falha ao traduzir procedimento %r para inglês no upload", titulo, exc_info=True)
+    _traducao_ansiosa_para_ingles(procedimento, html, titulo, api_key)
 
     db.commit()
     return procedimento
@@ -114,7 +118,7 @@ def criar_procedimento(
     try:
         status_valor = StatusProcedimento(status)
     except ValueError:
-        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "status inválido")
+        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "invalid status")
 
     html = (arquivo.file.read()).decode("utf-8")
 
@@ -182,8 +186,50 @@ class ImportarJsonIn(BaseModel):
     sobrescrever_ids: list[uuid.UUID] = []
 
 
+KIND_BIBLIOTECA_PLANEJADOR = "suse-poc-procedure-library"
+
+
+def _do_formato_do_planejador(bruto):
+    """Um procedimento da biblioteca do planejador (title, html, sourceClient, version, products, ...) no formato de importação daqui
+    (titulo, html_original, cliente_origem, versao, categorias, ...). Qualquer outra coisa passa direto: o formato daqui e o export daqui
+    não mudam. O `id` só vale quando é de um procedimento do servidor guardado na biblioteca (`srv-<uuid>`): assim reimportar no mesmo
+    servidor acha o duplicado; um id local do planejador não existe aqui."""
+    if not isinstance(bruto, dict) or "titulo" in bruto or "html_original" in bruto or "html" not in bruto:
+        return bruto
+    id_bruto = str(bruto.get("id") or "")
+    id_servidor = None
+    if id_bruto.startswith("srv-"):
+        try:
+            id_servidor = str(uuid.UUID(id_bruto[4:]))
+        except ValueError:
+            id_servidor = None
+    produtos = bruto.get("products") if isinstance(bruto.get("products"), list) else []
+    return {
+        "id": id_servidor,
+        "titulo": bruto.get("title"),
+        "titulo_en": bruto.get("titleEn") or None,
+        "html_original": bruto.get("html"),
+        "tags": bruto.get("tags") if isinstance(bruto.get("tags"), list) else [],
+        "categorias": sorted({c for c in (_CATEGORIA_CODIGO_DO_PRODUTO.get(p) for p in produtos) if c}),
+        "cliente_origem": bruto.get("sourceClient") or None,
+        "data_origem": bruto.get("date") or None,
+        "status": bruto.get("status") or "rascunho",
+        "versao": bruto.get("version") or 1,
+        "idioma_original": bruto.get("langOriginal") or None,
+    }
+
+
 def _itens_brutos(payload: list[dict] | dict) -> list[dict]:
-    return payload if isinstance(payload, list) else [payload]
+    """Aceita uma lista, um objeto, ou a biblioteca exportada pelo planejador (`{"kind": "suse-poc-procedure-library", "procedures": [...]}`),
+    esta última também dentro de uma lista; cada procedimento no formato do planejador é convertido."""
+    lista = payload if isinstance(payload, list) else [payload]
+    saida: list = []
+    for bruto in lista:
+        if isinstance(bruto, dict) and bruto.get("kind") == KIND_BIBLIOTECA_PLANEJADOR and isinstance(bruto.get("procedures"), list):
+            saida.extend(bruto["procedures"])
+        else:
+            saida.append(bruto)
+    return [_do_formato_do_planejador(b) for b in saida]
 
 
 def _encontrar_duplicado(db: Session, item: ProcedimentoImportItem) -> Procedimento | None:
@@ -195,8 +241,10 @@ def _encontrar_duplicado(db: Session, item: ProcedimentoImportItem) -> Procedime
         if existente is not None:
             return existente
     query = db.query(Procedimento).filter(Procedimento.titulo == item.titulo)
-    if item.categorias:
-        query = query.filter(Procedimento.categorias.overlap(item.categorias))
+    # Mesmos códigos que são gravados (maiúsculas, só os da taxonomia): "k8s" no JSON tem que bater com o "K8S" guardado.
+    categorias = sorted({c for c in (normalizar(c) for c in item.categorias) if c})
+    if categorias:
+        query = query.filter(Procedimento.categorias.overlap(categorias))
     return query.first()
 
 
@@ -208,7 +256,7 @@ def _sobrescrever_conteudo_procedimento(
     na importação. Rechunka/reembeda do zero a partir do html novo, como qualquer upload."""
     secoes = extrair_secoes(item.html_original)
     if not secoes:
-        raise ValueError("Nenhuma seção encontrada no HTML")
+        raise ValueError("No sections found in the HTML")
     procedimento.titulo = item.titulo
     procedimento.titulo_en = item.titulo_en[:255] if item.titulo_en else None
     procedimento.tags = item.tags
@@ -220,6 +268,13 @@ def _sobrescrever_conteudo_procedimento(
     procedimento.html_original = item.html_original
     procedimento.idioma_original = item.idioma_original
     procedimento.traducoes = {}
+    if not item.idioma_original or not item.titulo_en:
+        # Conteúdo novo: o idioma e o título em inglês antigos não valem mais. Faltando no JSON, detecta e traduz como um upload
+        # (se o JSON trouxe o título em inglês, ele vale por cima).
+        titulo_en_json = procedimento.titulo_en
+        _traducao_ansiosa_para_ingles(procedimento, item.html_original, item.titulo, api_key)
+        if titulo_en_json:
+            procedimento.titulo_en = titulo_en_json
     db.query(ProcedimentoChunk).filter(ProcedimentoChunk.procedimento_id == procedimento.id).delete()
     for secao in secoes:
         embedding = embed_document(secao.content_text, api_key=api_key)
@@ -276,7 +331,7 @@ def importar_json(
     como lista (envolve um objeto único antes de chamar), então essa normalização já fica lá."""
     api_key = resolve_api_key(current_user)
     resultados = []
-    for indice, bruto in enumerate(payload.itens):
+    for indice, bruto in enumerate(_itens_brutos(payload.itens)):
         titulo_bruto = str(bruto.get("titulo") or "")
         try:
             item = ProcedimentoImportItem.model_validate(bruto)
@@ -292,6 +347,16 @@ def importar_json(
         if duplicado is not None and duplicado.id not in payload.sobrescrever_ids:
             resultados.append(
                 ResultadoImportacaoItem(indice=indice, titulo=item.titulo, status="pulado", id=duplicado.id)
+            )
+            continue
+        if duplicado is not None and duplicado.responsavel_id != current_user.id:
+            # Daqui em diante o duplicado é um que a pessoa pediu para sobrescrever, e isso troca conteúdo, status e metadados: só o dono
+            # pode (mesma regra de excluir/transferir, ADR 4). Um procedimento sem dono precisa ser assumido antes.
+            resultados.append(
+                ResultadoImportacaoItem(
+                    indice=indice, titulo=item.titulo, status="erro", id=duplicado.id,
+                    erro="Only the owner can overwrite this procedure; one without an owner must be claimed first.",
+                )
             )
             continue
         try:
@@ -351,7 +416,7 @@ def exportar_procedimentos_json(
         try:
             lista = [uuid.UUID(x.strip()) for x in ids.split(",") if x.strip()]
         except ValueError:
-            raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "ids inválidos")
+            raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "invalid ids")
         query = query.filter(Procedimento.id.in_(lista))
     return query.order_by(Procedimento.created_at.desc()).all()
 
@@ -359,7 +424,7 @@ def exportar_procedimentos_json(
 def _get_procedimento_or_404(db: Session, procedimento_id: uuid.UUID) -> Procedimento:
     procedimento = db.get(Procedimento, procedimento_id)
     if procedimento is None:
-        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Procedimento não encontrado")
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Procedure not found")
     return procedimento
 
 
@@ -455,11 +520,11 @@ def definir_responsavel(
     procedimento = _get_procedimento_or_404(db, procedimento_id)
     novo = db.get(User, payload.responsavel_id)
     if novo is None:
-        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "User not found")
     if not excl.pode_atribuir(current_user, procedimento, novo.id):
         raise HTTPException(
             http_status.HTTP_403_FORBIDDEN,
-            "Só o dono (ou um administrador) altera o responsável; um procedimento sem dono pode ser assumido.",
+            "Only the owner (or an administrator) changes the owner; a procedure without an owner can be claimed.",
         )
     procedimento.responsavel_id = novo.id
     db.commit()
@@ -480,7 +545,7 @@ def validar_procedimento(
     (_buscar_candidatos já filtra só status=validado) -- nenhuma mudança extra necessária ali."""
     procedimento = _get_procedimento_or_404(db, procedimento_id)
     if procedimento.status != StatusProcedimento.rascunho:
-        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Só um procedimento em rascunho pode ser validado")
+        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Only a draft procedure can be validated")
     procedimento.status = StatusProcedimento.validado
     db.commit()
     return {"id": procedimento.id, "status": procedimento.status}

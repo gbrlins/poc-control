@@ -1,0 +1,293 @@
+{
+  "schema": 2,
+  "planner": {
+    "project": {
+      "projectName": "PoC Plataforma Clínica Segura",
+      "clientOrganization": "Hospital Santa Aurora",
+      "leadEngineer": "Gabriel Lins",
+      "leadEmail": "gabriel.lins@example.com",
+      "organization": "SUSE",
+      "startDate": "2026-12-01",
+      "targetDate": "2026-12-19",
+      "contacts": [
+        {
+          "name": "Marcos Teixeira",
+          "role": "Gerente de Infraestrutura de TI",
+          "email": "marcos.teixeira@santaaurora.example",
+          "phone": "+55 11 3000-1001"
+        },
+        {
+          "name": "Dra. Helena Albuquerque",
+          "role": "Diretora de Tecnologia Clínica (CMIO)",
+          "email": "helena.albuquerque@santaaurora.example",
+          "phone": "+55 11 3000-1002"
+        },
+        {
+          "name": "Renato Campos",
+          "role": "Encarregado de Dados (DPO / LGPD)",
+          "email": "renato.campos@santaaurora.example",
+          "phone": "+55 11 3000-1003"
+        },
+        {
+          "name": "Paula Siqueira",
+          "role": "Analista de Segurança da Informação",
+          "email": "paula.siqueira@santaaurora.example",
+          "phone": "+55 11 3000-1004"
+        }
+      ],
+      "presalesUseCase": "Plataforma Kubernetes segura para sistemas clínicos (prontuário eletrônico e PACS), com conformidade LGPD",
+      "businessIssue": "Auditoria da LGPD apontou falta de isolamento e de evidências de controle de acesso aos dados de pacientes; clusters sem gestão central",
+      "targetInfrastructure": "2 clusters RKE2 on-prem (produção e homologação), 6 nós de 16 vCPU/64 GB cada, VMware como hipervisor"
+    },
+    "selectedProducts": {
+      "virtualization": false,
+      "rancher": true,
+      "security": true,
+      "storage": false,
+      "observability": false,
+      "registry": false,
+      "appcollection": false,
+      "manager": false
+    },
+    "network": {
+      "managementCidr": "10.20.0.0/24",
+      "gatewayIp": "10.20.0.1",
+      "subnetMask": "255.255.255.0",
+      "clusterVip": "10.20.0.10",
+      "dnsServers": "10.20.0.2, 10.20.0.3",
+      "ntpServers": "ntp.santaaurora.example",
+      "domain": "santaaurora.example",
+      "httpProxy": "",
+      "httpsProxy": "",
+      "noProxy": "",
+      "hasFirewall": true,
+      "hasProxy": false,
+      "hasAirGap": false,
+      "hasExternalStorage": true,
+      "hasLoadBalancer": true,
+      "ipPoolStart": "10.20.0.20",
+      "ipPoolEnd": "10.20.0.60",
+      "vms": []
+    },
+    "infra": {
+      "rancher": {
+        "vmSize": {
+          "cpu": 8,
+          "ram": 16,
+          "disk": 150
+        }
+      }
+    },
+    "installApproach": "online"
+  },
+  "tests": [
+    {
+      "id": "t1",
+      "catalogId": "rancher-install",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Rancher no ar: rollout e tela de login",
+      "expected": "O rollout de deploy/rancher termina e a tela de login responde em HTTPS no hostname do hospital",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t2",
+      "catalogId": "rancher-firstlogin",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Primeiro acesso e senha do admin",
+      "expected": "Login com a bootstrap password; senha do admin e Server URL definidos",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t3",
+      "catalogId": "rancher-import",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Importar o cluster de produção existente (RKE2)",
+      "expected": "Cluster passa de Pending a Active e surgem os projetos Default e System",
+      "priority": "must",
+      "fit": "config",
+      "led": "client",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t4",
+      "catalogId": "rancher-auth",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Login com o Active Directory do hospital",
+      "expected": "Usuário do AD autentica no Rancher e é associado a um grupo",
+      "priority": "must",
+      "fit": "config",
+      "led": "client",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t5",
+      "catalogId": "rancher-rbac",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "RBAC: perfis Médico-TI, Infra e Auditoria",
+      "expected": "Três usuários com papéis distintos veem e fazem só o que o papel permite",
+      "priority": "must",
+      "fit": "config",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t6",
+      "catalogId": "rancher-backup",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Backup do Rancher para bucket S3",
+      "expected": "Backup agendado concluído e visível no bucket",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t7",
+      "catalogId": "rancher-restore",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Restore do Rancher em instalação limpa",
+      "expected": "Clusters, usuários e configurações recuperados na mesma versão",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t8",
+      "catalogId": "",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Isolamento por namespace dos sistemas clínicos (prontuário e PACS)",
+      "expected": "Projetos separados com Resource Quota e Network Policy; tráfego entre eles bloqueado por padrão",
+      "priority": "must",
+      "fit": "config",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t9",
+      "catalogId": "",
+      "product": "rancher",
+      "productName": "Rancher Prime",
+      "title": "Publicar o app de agendamento via Fleet (GitOps)",
+      "expected": "Mudança no repositório Git é aplicada nos 2 clusters em até 2 minutos; rollback por revert do commit",
+      "priority": "nice",
+      "fit": "config",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t10",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "Instalar o SUSE Security e descobrir o tráfego do prontuário",
+      "expected": "Grafo de conexões mostra os pods do prontuário e seus fluxos reais (modo Discover)",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t11",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "Modo Monitor → Protect: bloquear conexão não prevista",
+      "expected": "Conexão ad hoc de um pod de teste para o banco do prontuário é bloqueada e gera violação",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t12",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "Varredura de vulnerabilidades em imagens e nós",
+      "expected": "Relatório de CVEs por imagem/nó, filtrável por severidade, com exportação CSV",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t13",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "Admission control: bloquear imagem com CVE crítico ou de registry não aprovado",
+      "expected": "Deploy da imagem com CVE crítico é negado com mensagem clara; imagem limpa é admitida",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t14",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "DLP: detectar CPF/CNS em tráfego não autorizado (LGPD)",
+      "expected": "Alerta ao detectar padrão de CPF trafegando de pod para destino externo não permitido",
+      "priority": "nice",
+      "fit": "config",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t15",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "Relatório de compliance (CIS Kubernetes) para a auditoria",
+      "expected": "Relatório CIS gerado, com itens reprovados e remediação sugerida; evidência para a equipe de privacidade",
+      "priority": "must",
+      "fit": "native",
+      "led": "suse",
+      "result": "pending",
+      "owner": ""
+    },
+    {
+      "id": "t16",
+      "catalogId": "",
+      "product": "security",
+      "productName": "SUSE Security",
+      "title": "Encaminhar eventos de segurança ao SIEM via syslog/webhook",
+      "expected": "Violação gerada no teste aparece no SIEM do hospital em até 1 minuto",
+      "priority": "nice",
+      "fit": "config",
+      "led": "client",
+      "result": "pending",
+      "owner": ""
+    }
+  ]
+}

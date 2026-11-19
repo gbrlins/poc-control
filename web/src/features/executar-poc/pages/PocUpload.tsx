@@ -1,22 +1,31 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "@/api";
+import { api, ApiError } from "@/api";
 import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
+import { ProgressoEnvio } from "@/components/ProgressoEnvio";
+import { useAvisoAoSair, useRascunhoState } from "@/rascunhoUpload";
 import { useLanguage } from "@/i18n";
 
 type Modo = "arquivo" | "texto";
 
 export function PocUpload() {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const navigate = useNavigate();
-  const [titulo, setTitulo] = useState("");
-  const [cliente, setCliente] = useState("");
-  const [escopo, setEscopo] = useState("");
-  const [modo, setModo] = useState<Modo>("arquivo");
-  const [arquivos, setArquivos] = useState<File[]>([]);
-  const [texto, setTexto] = useState("");
+  // O que já foi escolhido fica na memória ao sair da tela e voltar; os arquivos só sobem quando se clica em "Criar PoC".
+  const [rascunho, setRascunho, limparRascunho] = useRascunhoState<{
+    titulo: string;
+    cliente: string;
+    escopo: string;
+    modo: Modo;
+    arquivos: File[];
+    texto: string;
+  }>("poc-nova", { titulo: "", cliente: "", escopo: "", modo: "arquivo", arquivos: [], texto: "" });
+  const { titulo, cliente, escopo, modo, arquivos, texto } = rascunho;
+  const atualizar = (parcial: Partial<typeof rascunho>) => setRascunho({ ...rascunho, ...parcial });
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [progresso, setProgresso] = useState(0);
+  useAvisoAoSair(modo === "arquivo" && arquivos.length > 0 && !enviando);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -29,6 +38,7 @@ export function PocUpload() {
       return;
     }
     setErro(null);
+    setProgresso(0);
     setEnviando(true);
     try {
       const form = new FormData();
@@ -37,10 +47,11 @@ export function PocUpload() {
       form.append("escopo", escopo);
       if (modo === "arquivo") arquivos.forEach((a) => form.append("arquivos", a));
       if (modo === "texto") form.append("texto", texto);
-      const criado = await api.criarPoc(form, lang);
+      const criado = await api.criarPoc(form, setProgresso);
+      limparRascunho();
       navigate(`/pocs/${criado.id}`);
-    } catch {
-      setErro(t("pocUpload.erroCriar"));
+    } catch (e) {
+      setErro(e instanceof ApiError && e.message ? `${t("pocUpload.erroCriar")}: ${e.message}` : t("pocUpload.erroCriar"));
     } finally {
       setEnviando(false);
     }
@@ -60,7 +71,7 @@ export function PocUpload() {
               id="titulo"
               className="input"
               value={titulo}
-              onChange={(e) => setTitulo(e.target.value)}
+              onChange={(e) => atualizar({ titulo: e.target.value })}
               placeholder="PoC SUSE Virtualization"
               required
             />
@@ -71,7 +82,7 @@ export function PocUpload() {
               id="cliente"
               className="input"
               value={cliente}
-              onChange={(e) => setCliente(e.target.value)}
+              onChange={(e) => atualizar({ cliente: e.target.value })}
               required
             />
           </div>
@@ -81,7 +92,7 @@ export function PocUpload() {
               id="escopo"
               className="input"
               value={escopo}
-              onChange={(e) => setEscopo(e.target.value)}
+              onChange={(e) => atualizar({ escopo: e.target.value })}
               placeholder={t("pocUpload.escopoPlaceholder")}
             />
           </div>
@@ -92,14 +103,14 @@ export function PocUpload() {
               <button
                 type="button"
                 className={modo === "arquivo" ? "field-toggle-btn active" : "field-toggle-btn"}
-                onClick={() => setModo("arquivo")}
+                onClick={() => atualizar({ modo: "arquivo" })}
               >
                 {t("pocUpload.arquivo")}
               </button>
               <button
                 type="button"
                 className={modo === "texto" ? "field-toggle-btn active" : "field-toggle-btn"}
-                onClick={() => setModo("texto")}
+                onClick={() => atualizar({ modo: "texto" })}
               >
                 {t("pocUpload.colarTexto")}
               </button>
@@ -109,10 +120,11 @@ export function PocUpload() {
               <>
                 <BatchDocumentUploader
                   files={arquivos}
-                  onFilesChange={setArquivos}
+                  onFilesChange={(arquivos) => atualizar({ arquivos })}
                   accept=".pdf,.json,.txt,.md,.xlsx,.csv,application/pdf,application/json,text/plain,text/markdown,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   selectLabel={t("pocUpload.adicionarMais")}
                   removeLabel={t("pocUpload.remover")}
+                  pendingHint={t("common.arquivosNaoEnviados")}
                 />
                 <p className="field-hint">
                   {t("pocUpload.hintArquivo1")}
@@ -127,7 +139,7 @@ export function PocUpload() {
                   className="input"
                   rows={10}
                   value={texto}
-                  onChange={(e) => setTexto(e.target.value)}
+                  onChange={(e) => atualizar({ texto: e.target.value })}
                   placeholder={t("pocUpload.textoPlaceholder")}
                 />
                 <p className="field-hint">
@@ -140,6 +152,7 @@ export function PocUpload() {
           </div>
 
           {erro && <p className="alert alert-error">{erro}</p>}
+          {enviando && modo === "arquivo" && <ProgressoEnvio pct={progresso} />}
           <button type="submit" className="btn btn-primary" disabled={enviando}>
             {enviando ? t("pocUpload.enviando") : t("pocUpload.criarPoc")}
           </button>

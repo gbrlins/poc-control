@@ -18,3 +18,10 @@ def resolve_model(user: User | None) -> str | None:
     if user is None or not user.gemini_model:
         return None
     return user.gemini_model
+
+
+def chave_final(user: User | None) -> str | None:
+    """Últimos 4 caracteres da chave pessoal do usuário, só pra a tela Minha conta mostrar QUAL chave está em uso (nunca a chave
+    inteira). Nulo se não houver chave cadastrada ou se não der pra descriptografar."""
+    chave = resolve_api_key(user)
+    return chave[-4:] if chave and len(chave) >= 10 else None

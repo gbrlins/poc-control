@@ -166,6 +166,9 @@ class Poc(Base):
     cliente: Mapped[str] = mapped_column(String(255), nullable=False)
     escopo: Mapped[str | None] = mapped_column(Text, nullable=True)
     resumo_executivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Idioma de cada texto ({"campo": "en"}) e cache das traduções para exibição/relatórios; ver app/idioma.py e app/traducao_cache.py. Migração 0034.
+    idiomas: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    traducoes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[StatusPoc] = mapped_column(Enum(StatusPoc, name="status_poc"), default=StatusPoc.ativa)
     status_extracao: Mapped[StatusExtracao] = mapped_column(
         Enum(StatusExtracao, name="status_extracao"), default=StatusExtracao.extraindo
@@ -336,13 +339,12 @@ class Item(Base):
     # por histórico do RFI Analyser (_buscar_candidatos_historico); não tem relação com
     # ResultadoCatalogo (ADR 1), que é anônimo e não guarda texto.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
-    # Idioma em que titulo/descricao/criterio_aceite/categoria foram extraídos ("pt"|"en"|"es"),
-    # e cache de tradução sob demanda pros outros dois -- mesmo mecanismo de Procedimento
-    # (idioma_original/traducoes, ver api/app/traducao.py::campos_no_idioma), generalizado aqui
-    # pra branch v2 (itens extraídos antes da migração 0031 ficam com idioma_original nulo, tratado
-    # como "pt" na leitura). Migração 0031.
-    idioma_original: Mapped[str | None] = mapped_column(String(5), nullable=True)
-    traducoes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # Cache dos textos do item (título, descrição, critério, categoria) traduzidos para exibição: {"en:titulo": {"h": <hash do
+    # original>, "t": <tradução>}, ...}. Só vale enquanto o hash bater com o texto atual (edição invalida sozinha). Ver
+    # app/traducao_cache.py. Migração 0033.
+    traducoes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Idioma em que CADA texto foi escrito ({"titulo": "en", ...}); sem marca vale pt (texto anterior à marca). Ver app/idioma.py. Migração 0034.
+    idiomas: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -383,6 +385,10 @@ class Classificacao(Base):
     flag: Mapped[FlagClassificacao] = mapped_column(Enum(FlagClassificacao, name="flag_classificacao"))
     origem: Mapped[OrigemClassificacao] = mapped_column(Enum(OrigemClassificacao, name="origem_classificacao"))
     justificativa: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Cache da justificativa traduzida para exibição (ver app/traducao_cache.py); vale só enquanto o hash do original bater.
+    traducoes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Idioma da justificativa ({"justificativa": "en"}); ver app/idioma.py. Migração 0034.
+    idiomas: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     fontes: Mapped[list[dict]] = mapped_column(JSONB, default=list)
     procedimento_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("procedimentos.id", ondelete="SET NULL"), nullable=True
@@ -403,10 +409,6 @@ class Classificacao(Base):
     # Nome do modelo do Gemini que de fato classificou o item (só em classificações automáticas
     # — override manual não chama o Gemini, então fica nulo). Mesma motivação de Poc.modelo_extracao.
     modelo: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # Idioma de `justificativa` + cache de tradução sob demanda -- ver Item.idioma_original acima
-    # (mesmo mecanismo, só que pra um único campo aqui). Migração 0031.
-    idioma_original: Mapped[str | None] = mapped_column(String(5), nullable=True)
-    traducoes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -524,6 +526,12 @@ class RfiItem(Base):
     veredito: Mapped[VeredictoRfi | None] = mapped_column(Enum(VeredictoRfi, name="veredito_rfi"), nullable=True)
     justificativa: Mapped[str | None] = mapped_column(Text, nullable=True)
     fontes: Mapped[list[dict]] = mapped_column(JSONB, default=list)
+    # Cache da justificativa traduzida para exibição: {"en": {"h": <hash do texto original>, "t": <tradução>}, ...}.
+    # Só vale enquanto o hash bater com a justificativa atual (reavaliar invalida sozinho). Ver app/rfi/traducao.py.
+    traducoes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Idioma de cada texto do item ({"categoria": "en", "justificativa": "en"}); `descricao` é cópia literal do edital e não tem marca.
+    # Ver app/idioma.py. Migração 0034.
+    idiomas: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     origem: Mapped[OrigemClassificacao | None] = mapped_column(
         Enum(OrigemClassificacao, name="origem_classificacao"), nullable=True
     )
@@ -544,14 +552,6 @@ class RfiItem(Base):
     modelo: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Passo da avaliação em curso (procedimento|historico|web|classificando); nulo fora da avaliação.
     etapa: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    # Idioma de categoria+justificativa + cache de tradução sob demanda -- ver Item.idioma_original
-    # acima. `descricao` NUNCA é traduzida (é cópia literal do edital original, "sem resumir nem
-    # reescrever" -- traduzi-la desvirtuaria o requisito de origem). Como categoria (extração) e
-    # justificativa (avaliação) podem nascer em momentos/idiomas diferentes, idioma_original reflete
-    # sempre a ÚLTIMA escrita (reavaliação reseta e limpa o cache) -- categoria pode ocasionalmente
-    # ficar "atrás" até a próxima tradução, um compromisso cosmético aceitável. Migração 0031.
-    idioma_original: Mapped[str | None] = mapped_column(String(5), nullable=True)
-    traducoes: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -577,6 +577,9 @@ class Prerequisito(Base):
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     atendido: Mapped[bool] = mapped_column(Boolean, default=False)
     ordem: Mapped[int] = mapped_column(Integer, default=0)
+    # Idioma de cada texto ({"campo": "en"}) e cache das traduções para exibição/relatórios; ver app/idioma.py e app/traducao_cache.py. Migração 0034.
+    idiomas: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    traducoes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -598,6 +601,9 @@ class Sessao(Base):
     pontos_resolvidos: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     pontos_falha: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
     proximos_passos: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    # Idioma de cada texto ({"campo": "en"}) e cache das traduções para exibição/relatórios; ver app/idioma.py e app/traducao_cache.py. Migração 0034.
+    idiomas: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    traducoes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

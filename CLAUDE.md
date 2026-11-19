@@ -1,5 +1,12 @@
 # POC Control
 
+> **Nota (2026-11-15):** a casa definitiva deste código agora é `https://gitlab.suse.de/sa/poc-control`
+> (importado de `gbrlins`; `origin` é `gitlab@gitlab.suse.de:sa/poc-control.git` -- o usuário SSH é `gitlab`, não
+> `git`). **Decisão de 2026-11-18: o GitLab é a única casa; as regras da casa antiga -- repositório GitHub `suse-poc-toolkit`
+> (e `gbrlins/poc-control`), imagens no Docker Hub `gabriellins/poc-control` e aviso no Slack -- não valem mais** (tudo foi
+> incorporado ao GitLab). Os textos abaixo sobre elas ficam só como histórico.
+> As mudanças da revisão do Sales Kickoff estão na seção "Revisão do Sales Kickoff (2026-11-13)" mais abaixo.
+
 > **Nota de sincronização (2026-11-02):** este repositório é a base original de onde
 > `FlavioFGM/suse-poc-toolkit` nasceu (pasta `poc-control/` de lá, histórico completo preservado).
 > Desde então, todo o desenvolvimento continuou no monorepo; este Pull Request traz o estado atual
@@ -23,29 +30,37 @@ Ferramenta pessoal (depois, do time) pra cobrir o ciclo de PoC de cliente de pon
 **planejar** o escopo (tela inicial do app), **executar** com semáforo por item e acompanhamento
 de sessão, e fazer uma **triagem automática de TR/edital (RFI)** contra o portfólio SUSE.
 
-Dono: Gabriel (Solutions Architect, SUSE). Idioma da interface e dos textos gerados: **português (pt-BR)**.
-A casca do app (menu, navbar, planejador) tem um seletor PT/EN/ES e alternância de tema claro/escuro (ver
-"Tema (claro/escuro) e rodapé de build" e "O planejador como tela inicial" abaixo) — isso não muda a regra
-acima para o conteúdo gerado pela IA nem para os formulários de domínio do Executar PoC/RFI, que continuam
-só em pt-BR. **Única exceção**: a exibição de um Procedimento acompanha esse seletor (tradução
-automática do HTML, ver "Tradução de exibição" em "Procedimentos" abaixo) -- os formulários onde ele é
-cadastrado/editado continuam em pt-BR, só o conteúdo final mostrado é que muda de idioma.
+Dono: Gabriel (Solutions Architect, SUSE). Uso mundial: o idioma **padrão é inglês**, com **pt-BR** e **espanhol** como idiomas
+completos (seletor PT/EN/ES na casca e no planejador, mais alternância de tema claro/escuro; ver "Tema (claro/escuro) e rodapé de
+build" e "O planejador como tela inicial" abaixo). Regras de idioma (decisão de 2026-11-18, que substitui a antiga "tudo em pt-BR"):
 
-> **Branch `v2` (regra de idioma sobrescrita):** nesta branch -- isolada em stack própria, ver
-> `docs/v2-stack.md`, sem deploy e sem merge na `main` até Gabriel validar -- o parágrafo acima NÃO
-> vale. A regra aqui é: tudo (casca, formulários de domínio do Executar PoC/RFI, e todo conteúdo
-> gerado por IA -- títulos/descrições extraídos, justificativas de classificação, justificativas de
-> RFI, rascunhos de procedimento, resumos de sessão) acompanha dinamicamente o idioma selecionado no
-> seletor pt/en/es existente, no momento da geração/visualização. Ver o plano de implementação
-> original para o detalhamento completo por item. O resto deste arquivo descreve a arquitetura da
-> `main`; onde a `v2` diverge, o código e os comentários no próprio código são a fonte de verdade.
+- **Quem olha**: sem escolha guardada, o idioma é o do navegador (pt, es ou en; qualquer outro, inglês). Na API, sem `X-UI-Lang`
+  nem `?lang=`, o padrão é inglês (`api/app/idioma.py::IDIOMA_PADRAO`). `?lang=orig` / `X-UI-Lang: orig` pede "como está gravado, sem
+  traduzir".
+- **Texto gravado**: cada campo de texto escrito pela IA ou por uma pessoa guarda o **idioma em que foi escrito** (`idiomas`, JSONB
+  por campo; nulo = pt, porque todo texto anterior à marca era pt-BR -- `IDIOMA_LEGADO`). A IA escreve no idioma da tela de quem acionou.
+- **Exibição**: quem lê em outro idioma vê a tradução sob demanda, com cache e hash do original (`api/app/traducao_cache.py`); o banco
+  nunca recebe a tradução. Vale para telas e para relatórios. Ver "Idioma do texto da IA e dos itens" mais abaixo.
+- **Mensagens do sistema**: o backend emite **inglês**; o front as mostra no idioma da tela (`web/src/mensagensServidor.ts`, que também
+  reconhece o pt-BR já gravado).
+- O **Procedimento** segue o mesmo princípio desde antes: HTML com `idioma_original` e tradução sob demanda (ver "Tradução de exibição").
+
+## Rotas da interface (nomes em inglês, 2026-11-18)
+
+As rotas de página são em inglês, vindas da branch `v2` do Gabriel (item 2.2 da especificação): `/plan`,
+`/procedures` (`/new`, `/import-json`, `/:id`), `/pocs/new`, `/rfis/new`, `/tenders`, `/users`, `/my-account`.
+Os caminhos antigos em português (`/planejar`, `/procedimentos`, `/pocs/novo`, `/rfis/novo`, `/licitacoes`,
+`/usuarios`, `/minha-conta`) continuam funcionando como redirecionamentos (`web/src/App.tsx`), pra links
+e favoritos já distribuídos. Só as rotas de página mudaram: os endpoints `/api/...` e os nomes de arquivo/
+componente continuam em português. Mais abaixo, onde o texto ainda cita um caminho em português de uma
+página, vale o nome em inglês desta seção.
 
 ## Repositório e ambiente
 
-- Git: `https://github.com/FlavioFGM/suse-poc-toolkit.git`, folder `poc-control/` (own history preserved from the former `gbrlins/poc-control.git`). Se `gbrlins/poc-control` ganhar commits novos direto por lá, ver `poc-control/docs/sincronizar-gbrlins-poc-control.md` para o passo a passo de trazê-los pra cá sem perder histórico.
+- Git: `https://gitlab.suse.de/sa/poc-control` é a única casa deste código (os repositórios do GitHub, `FlavioFGM/suse-poc-toolkit` e `gbrlins/poc-control`, não são mais usados; `docs/sincronizar-gbrlins-poc-control.md` descreve como a `v2` do Gabriel foi trazida e fica como histórico).
 - Servidor: Raspberry Pi na rede local, acessado por SSH com o alias `rasp` (chave em `~/.ssh/rasp`, ver `~/.ssh/config`). **Nunca** usar senha nem gravar credenciais em arquivos do repositório.
 - Exposição externa: `cloudflared` já instalado na Raspberry. Publicar só o serviço `web`. Recomendado proteger com Cloudflare Access além do login do app.
-- Tudo roda com `docker compose` em imagens **ARM64**.
+- Tudo roda com `docker compose`, construído a partir do código (`docker compose up -d --build`). Os `Dockerfile` não têm nada específico de arquitetura e as imagens-base (`python:3.12-slim`, `pgvector/pgvector:pg16`, `node`/`nginx` alpine) são multi-arquitetura: roda em **arm64** (a Raspberry e os Macs com Apple Silicon dos SAs) e em **amd64** (testado em x86 em 2026-11-18; arm64 não foi testado nesta rodada). O "ARM64 apenas" que aparece mais abaixo era só das imagens que se publicavam no Docker Hub, hoje aposentadas.
 
 ## Organização do repositório (features separadas para múltiplos times)
 
@@ -70,6 +85,9 @@ paralelo sem pisar um no outro:
   handle real de quem mantém o planejador.
 - Convenção de branch: `feature/executar-poc/<nome>`, `feature/planejar-poc/<nome>`,
   `feature/rfi/<nome>` e `feature/shell/<nome>` para mudanças na casca compartilhada.
+- `docs/diagrams/` — diagramas draw.io do processo de PoC → execução (`poc-to-execution.drawio`) e da análise de RFI
+  (`rfi-analysis.drawio`), com uma página de visão geral e uma sequência por fase; o `README.md` de lá diz onde olhar no código
+  quando um fluxo mudar.
 - Alias de import `@/` → `web/src/` (configurado em `vite.config.ts` e `tsconfig.json`), para os
   imports entre features não dependerem da profundidade relativa de cada pasta.
 
@@ -121,7 +139,7 @@ sem Item nem Classificacao de PoC -- o teste só ganha um Item de verdade se/qua
 "habilitado" como execução (ver "Importar documento do cliente" acima). Na tela de vincular
 procedimento a um teste (`procPickerHtml` em `poc-planner/index.html`), um botão "Gerar rascunho
 guiado com IA" (só quando `connectorHas('draft')`, ou seja, servido por este backend) chama
-`POST /api/planner/procedure-draft` com título/resultado esperado do teste (sempre em português,
+`POST /api/planner/procedure-draft` com título/resultado esperado do teste (no idioma da tela, campo `lang` do corpo; antes era sempre em português,
 mesma regra de idioma do conteúdo gerado por IA) e cliente/escopo do projeto. O backend reaproveita
 o mesmo par de chamadas Gemini de `gerar_rascunho_procedimento` (`app/planner/service.py::gerar_rascunho_planner`)
 e cria um `Procedimento` de verdade (`status=rascunho`, `gerado_por_ia=True`,
@@ -134,7 +152,7 @@ pela tela de Procedimentos do lado de cá -- a IA nunca se autoconfirma, mesma r
 
 **Exibição no idioma da tela, não no idioma em que foi escrito:** o planejador guarda na biblioteca
 local só `html_original` (o que o servidor manda, nunca pré-traduzido) e um `langOriginal` novo
-(idioma desse HTML -- pro rascunho acima, sempre `pt`, já que a geração é forçada em português).
+(idioma desse HTML -- o rascunho acima sai no idioma da tela no momento do clique).
 Decisão: reaproveitar a tradução sob demanda que `GET /api/procedimentos/{id}?lang=` já faz (ver
 "Tradução de exibição" em Procedimentos, com cache permanente por procedimento em
 `Procedimento.traducoes`) em vez de gerar as três línguas de uma vez na criação -- mais barato (a
@@ -176,7 +194,7 @@ tradução eager ainda não rodou ou falhou. Migração `0030`.
   cai pro fallback sem filtro (nunca perde um match só por lacuna de tagueamento). Mesma lógica vale
   pro seletor manual "Importar procedimento validado" (`sugerir_procedimentos`) e pra busca do RFI (ver
   abaixo). Migração `0018`.
-- **Tradução de exibição (única exceção à regra de pt-BR do topo deste arquivo)**: o HTML de um
+- **Tradução de exibição (o primeiro caso do princípio de idioma do topo deste arquivo)**: o HTML de um
   procedimento é mostrado no idioma selecionado na casca (`?lang=` em `GET /api/procedimentos/{id}`),
   não necessariamente no idioma em que foi enviado. No upload, `_criar_procedimento`
   (`api/app/procedimentos/router.py` -- caminho compartilhado por upload manual, sync entre
@@ -188,10 +206,20 @@ tradução eager ainda não rodou ou falhou. Migração `0030`.
   diante -- nunca para quem já tem o original no idioma certo. Se a tradução sob demanda falhar,
   cai pro original sem quebrar a página (`idioma_conteudo` no retorno diverge do `lang` pedido, e a
   UI mostra um aviso em vez de fingir que traduziu). As extrações/classificações de PoC e RFI, os
-  formulários e os resumos de sessão continuam só em pt-BR -- é só a exibição do procedimento que
+  formulários e os resumos de sessão passaram a seguir o princípio do topo (ver "Idioma do texto da IA e dos itens") -- aqui é a exibição do procedimento que
   acompanha o idioma da casca. Migração `0026`.
 
+- **Importar/exportar por JSON** (v2 do Gabriel; esquema em `docs/procedure-schema.md`): `POST /api/procedimentos/importar-json/preview` e
+  `/importar-json`, `GET /api/procedimentos/{id}/exportar-json` e `/exportar-json`. Um duplicado (mesmo `id`, ou mesmo título + categorias
+  normalizadas) é **pulado**, a não ser que a pessoa peça para sobrescrevê-lo -- e **só o dono** pode (mesma regra de excluir/transferir,
+  ADR 4; procedimento sem dono precisa ser assumido antes), porque sobrescrever troca conteúdo, status e metadados. Sobrescrever refaz o idioma
+  e o título em inglês como um upload quando o JSON não os traz.
+
 ### Carga inicial (pasta `seed/procedimentos/`)
+
+**Como carregar** (não é automático): `docker compose exec api python scripts/import_seed.py --user <e-mail>` (ver `DOCKER.md`, passo 5). O script usa o mesmo
+caminho de um upload (`_criar_procedimento`: idioma, título e tradução em inglês, seções com embedding), faz o usuário do `--user` o dono e usa a chave
+do Gemini dele; sem `--user` vale a `GEMINI_API_KEY` do ambiente e ficam sem dono. Pula os que já existem (mesmo título). Teste: `tests/test_import_seed_db.py`.
 
 Procedimentos da POC Sefaz-RJ, todos `validado`:
 1. **Argo CD do cliente → k3s**: cadastro declarativo de cluster k3s num Argo CD no OpenShift (rede, certificado, ServiceAccount, Secret de cluster, Application, teste GitOps com rollback, limpeza).
@@ -268,7 +296,7 @@ automática, feita antes/independente de qualquer execução.
 
 | Serviço | Tecnologia |
 |---|---|
-| `db` | PostgreSQL + pgvector (imagem `pgvector/pgvector`, ARM64), volume persistente |
+| `db` | PostgreSQL + pgvector (imagem `pgvector/pgvector`, multi-arquitetura), volume persistente |
 | `api` | Python + FastAPI, SQLAlchemy + Alembic, SDK `google-genai`, tarefas em background para processar PDFs |
 | `web` | React + TypeScript (Vite), servido por nginx, que também faz proxy de `/api` |
 
@@ -301,21 +329,22 @@ categorias vive em `api/app/categorias.py` (não é uma migração, é um dicion
 Já foi um "modo" trocado no menu hambúrguer (Executar PoC vs. Planejar PoC); depois virou uma
 hierarquia única com o planejador na própria raiz (`/`); hoje (`web/src/pages/Home.tsx`) a raiz é
 um **hub**, não o planejador em si: hero + um botão de ação por área (Planejar PoC, Analisador de
-RFI, Procedimentos) de cores diferentes, mais uma lista "mais recentes" compacta por área
+RFI, Procedimentos) de cores diferentes (Planejar PoC abre um projeto novo; Analisador de RFI e Procedimentos abrem a lista, que tem o botão de criar), mais uma lista "mais recentes" compacta por área
 (PoCs/RFIs/Procedimentos) abaixo, cada uma linkando pra sua tela cheia com filtros (`/pocs`,
-`/rfis`, `/procedimentos`). O planejador em si vive em `/planejar` (o botão "Planejar PoC" do hub
-leva lá direto pra tela inicial DELE — sem pular etapa). Não existe mais um botão de atalho pra
-"Executar PoC" no hub: a lista "PoCs recentes" da Home e o link "ver todas" já cobrem o caminho até
-`/pocs` e `/pocs/:id` (rotas inalteradas), então o atalho duplicava um caminho que já existia.
+`/rfis`, `/procedures`). O planejador em si vive em `/plan` (o botão "Planejar PoC" do hub
+leva lá direto pra um projeto novo, `/plan?new=1`). Não existe um botão de atalho pra "Executar PoC"
+no hub: a lista "Projetos e PoCs" (Executar por linha) e o link "ver todas" cobrem o caminho até `/pocs` e
+`/pocs/:id` (rotas inalteradas).
 
-Houve um `?start=new`/`?start=import` que pulava a tela inicial do planejador direto pro passo
-"Projeto" ou pro formulário de importar documento (pra evitar "clicar em Iniciar duas vezes", uma
-no hub e outra lá). Removido (poc-planner/index.html's `applyUrlStart`, `PlanPoc.tsx`): o hub só
-tem UM botão "Planejar PoC" que leva pra tela inicial do planejador, e essa tela já lista "Novo
-Projeto", "Importar Projeto", "Importar documento do cliente" e "Biblioteca de procedimentos" como
-opções igualmente visíveis — eram exatamente os mesmos atalhos que o hub tentava duplicar um nível
-acima, só que incompletos (sem "Importar Projeto" nem a biblioteca). Pular essa tela também
-escondia essas duas opções por trás de um clique que ninguém pediu.
+Embutido na casca, o planejador **não mostra mais a própria tela inicial** (dashboard): "Novo projeto", "Importar
+projeto (JSON)", "Importar documento do cliente", a biblioteca de procedimentos e a lista de projetos moram na Home
+(`web/src/pages/HomeProjetos.tsx`). A Home abre o planejador já no ponto certo por parâmetros de uso único em
+`/plan` (`web/src/features/planejar-poc/pages/PlanPoc.tsx` os repassa ao iframe só no 1º carregamento; o
+planejador os retira do endereço, ver `applyUrlAction` em `poc-planner/index.html`): `?open=<id do projeto local>`,
+`?new=1` (reaproveita o projeto em branco, se houver), `?import=project` (texto do JSON deixado pela Home em
+`sessionStorage`) | `?import=doc`, `?view=library`. Sem parâmetro, retoma a última etapa. "Voltar ao início" de dentro
+do planejador é um `postMessage` (`poc-control:navigate`) que a casca converte em navegação para `/`. Standalone
+(`/planner/` direto) o dashboard continua existindo.
 
 Não há mais menu lateral (`Sidebar.tsx` foi removido): a navegação entre áreas é só pelo hub da
 Home, mais um botão "Início" (ícone de casa) no topbar, visível em toda página
@@ -328,7 +357,7 @@ usuário -- não têm mais um lugar próprio na casca.
 - Seletor de idioma único (`web/src/i18n.tsx`, pt/en/es) cobre a casca do app e o planejador, que
   já tinha suas próprias traduções nas 3 línguas antes da integração — não muda a regra do topo
   deste arquivo para o conteúdo gerado pela IA nem para os formulários de domínio do Executar
-  PoC/RFI, que continuam só em pt-BR.
+  PoC/RFI, que seguem as regras de idioma do topo.
 - **Importar documento do cliente → ligar à execução real**: no painel inicial do planejador,
   além de "Novo Projeto" (preenchimento manual) há "Importar documento do cliente"
   (PDF/XLSX/CSV/JSON). Chama `POST /api/pocs/importar-planejador`, que já cria a `Poc` no
@@ -365,6 +394,82 @@ usuário -- não têm mais um lugar próprio na casca.
   (`btn-outline` ali, em vez do `btn-ghost` branco-sobre-escuro da header, que ficaria ilegível no
   fundo claro do `.container`). Em uso standalone nada muda.
 
+## Revisão do Sales Kickoff (2026-11-13)
+
+Decisões da reunião "Revisão SUSE toolkit" e das anotações do Erico, implementadas na branch
+`feature/planejar-poc/revisao-sk-2026-11` (um commit por tema). O que mudou e onde mora:
+
+- **Terminologia**: na interface em inglês, "client" virou "customer" (pt/es continuam "cliente"; nomes internos como
+  `clientOrganization`/`cliente` não mudaram, pra não quebrar importações).
+- **Exportação do planejador**: três opções -- relatório para o customer, relatório do SA (checklist de instalação +
+  roteiro do dia + folha do operador, com credenciais, impressão `print-sa`) e salvar projeto (JSON, já com a seção `eib`).
+  O EIB é só informativo: o `run.sh` lê o JSON salvo; não existe mais a pergunta "EIB?" nem a abordagem `eib` (projetos
+  antigos com `eib` caem em `manual`).
+- **Home**: lista única "Projetos e PoCs" (planejamento local + execução no servidor, ordenável, com Planejar/Executar/
+  Excluir). Tudo que a casca sabe do `localStorage` do planejador passa por **`web/src/features/planejar-poc/plannerStore.ts`**
+  (chaves, listagem, exclusão, importação pendente, usuário). O planejador carimba quem gravou e a revisão no índice local
+  via `ProjectMeta` (revisão = sessão de edição de 5 min, não gravação). Quando os projetos forem pro banco, só esses dois
+  pontos mudam (**fora desta PR**: projetos no banco, "modificado por" real e log de alterações).
+- **Passo Testes**: uma aba por produto, "Adicionar teste" no topo, ordenação + contagem, testes padrão (catálogo) separados
+  dos adicionais.
+- **Resumo como ponto único de controle**: as caixas de firewall (portas e hosts/URLs) e o status de cada teste são editados
+  no Resumo; a tela de Portas só lista. O checklist de instalação saiu da linha de progressão e virou a aba **Kickoff**
+  (`KICKOFF_VIEW`); o progresso das etapas dele fica nessa aba. Os contadores de pendência da faixa de etapas se atualizam
+  enquanto se digita (`refreshNavBadges`).
+- **Infraestrutura**: campo de nós do Rancher (`infra.rancher.nodeCount`, padrão 1; o EIB perfil 1 gera a ISO de UM nó) e o
+  cartão "Arquitetura resultante" (derivado, só leitura).
+- **Idioma de relatórios e mensagens**: os relatórios HTML/XLSX do backend aceitam `?lang=pt|en|es`
+  (`api/app/relatorio_i18n.py`; o front passa o idioma atual). Mensagens e erros conhecidos do servidor (em inglês; as antigas em pt-BR, algumas
+  gravados no banco) são traduzidos só na exibição por `web/src/mensagensServidor.ts` -- manter em sincronia com as strings
+  do backend. O prompt sugerido da aba Andamento tem seletor de idioma próprio.
+- **Idioma do texto da IA e dos itens** (2026-11-18): o texto escrito pela IA ou digitado por uma pessoa guarda **o idioma em que foi
+  escrito, por campo** (`idiomas`, migração `0034`; ver `api/app/idioma.py`). Por campo e não por linha porque os campos nascem em momentos
+  e por mãos diferentes (a IA extrai o item num idioma, a pessoa edita só o título em outro; a categoria do RFI nasce na extração e a
+  justificativa na avaliação). A IA escreve no idioma da tela de quem acionou (`lang` roteador -> tarefa -> serviço -> `gemini.py`), e
+  um texto digitado à mão recebe o idioma da tela de quem digitou; o modal de edição do item só envia os campos que a pessoa mudou.
+  Quem lê em outro idioma vê a **tradução sob demanda, com cache** (`api/app/traducao_cache.py`, `X-UI-Lang`): título, descrição,
+  critério e categoria do item (`itens.traducoes`, `0033`), justificativa da classificação, justificativa + categoria do item de RFI --
+  **nunca** a `descricao` do RFI (cópia literal do edital) nem as mensagens fixas do sistema (já existem nos 3 idiomas). O cache guarda o
+  hash do original: editar ou reavaliar invalida sozinho. Só se traduz um campo cujo idioma de origem difere do de quem olha, então
+  texto antigo sem marca (pt) não custa nada para quem lê em pt.
+  O texto de **uso único** (resumo da sessão por e-mail, resumo executivo, rascunho guiado de procedimento, PoC e planejador) também
+  sai no idioma da tela e, quando é guardado (resumo executivo, pontos da sessão, pré-requisitos), com a marca de idioma.
+  Não adotamos o `traducao.py`/`campos_no_idioma` e a migração `0031` da `v2` do Gabriel (cache sem hash, marca por linha).
+- **Relatórios traduzidos** (PoC: exportar, apresentação, roteiro do dia; RFI: HTML e XLSX): montados a partir de **visões somente de
+  leitura** (`api/app/relatorio_visao.py`) com todo o texto escrito em outro idioma já traduzido (itens, justificativas, categorias,
+  pré-requisitos, pontos da sessão, resumo executivo, título do procedimento via `titulo_en`, corpo do procedimento pela tradução em
+  cache do próprio procedimento). A tradução **nunca é atribuída à linha do ORM** (o próximo commit a gravaria). Os endpoints de
+  relatório resolvem a chave do Gemini de quem exporta. Se o Gemini falhar, o relatório sai com o original, como as telas. Limites
+  conhecidos: o título da PoC/RFI e o cliente (digitados) não são traduzidos; o erro técnico dentro de uma mensagem de erro de RFI
+  segue como foi gravado; as telas de resumo executivo e pontos da sessão ainda mostram o texto gravado (só os relatórios os traduzem);
+  o planejador mostra o `detail` de erro da API como veio (inglês).
+- **RFI**: botão de download dos documentos enviados (`GET /api/rfis/{id}/documentos/{doc}/download`, só serve arquivo dentro
+  da pasta do RFI) e tabela de fontes citadas (ordenável, com Copiar). As fontes novas guardam a URL real (o redirecionamento
+  do grounding é resolvido em `api/app/url_real.py`); RFIs avaliados antes continuam com o link de redirecionamento até
+  serem reavaliados.
+- **Minha conta**: mostra qual chave do Gemini está em uso (últimos 4 caracteres, `UserOut.gemini_key_final`) e confirma
+  salvar/remover.
+- **Casos de exemplo** em `seed/poc/` (Hospital Santa Aurora pt/en e o ACME Retail), importáveis pelo planejador.
+
+Verificações do front que rodam sem navegador nem banco (saem com código 1 se algo falhar):
+`node --experimental-strip-types web/tests/mensagensServidor.check.mts` (tabela de mensagens do servidor, pt/en/es) e
+`node --experimental-strip-types web/tests/version.check.mts` (a versão é a mesma em todos os lugares, ver "Versão"),
+`node --experimental-strip-types web/tests/apiPaths.check.mts` (todo caminho `/api/...` chamado pelo front existe no backend -- nasceu de uma
+renomeação em massa das rotas de página que reescreveu `/api/procedimentos` por engano).
+
+Como rodar/testar localmente (venv, Postgres descartável, stack do compose): ver o passo a passo em
+`docs/` quando existir; por ora, `api/.venv` + `pytest` com as variáveis de ambiente de teste, `npm ci && npm run build`
+em `web/` e `docker compose --env-file <arquivo> -p <projeto> up -d --build`.
+
+## Versão
+
+O produto tem **uma versão só**: `"version"` em `web/package.json` (MAJOR.MINOR.PATCH). Ela aparece no rodapé do app (`v2.1.0 · data do build`, injetada pelo
+`vite build`) e, repetida pelo script, no cabeçalho do planejador e nos relatórios que ele gera (`APP_VERSION` em `poc-planner/index.html`) e no
+`package-lock.json`. Para mudar: `scripts/set-version.sh X.Y.Z`, commit, e uma tag anotada `vX.Y.Z` no commit da versão (`git tag -a vX.Y.Z -m ...`,
+publicada no GitLab). `node --experimental-strip-types web/tests/version.check.mts` falha se os lugares divergirem. Histórico: `v1.0.0` = a `main`
+antes da revisão do Sales Kickoff, `v2.0.0` = a revisão do Sales Kickoff (MR !1), `v2.1.0` = a sincronização com a `v2` do Gabriel + inglês como idioma
+padrão, `v2.1.1` = correções do teste local (importação de procedimentos por arquivo, "Executar" na Home, progresso de envio), `v2.1.2` = carga dos procedimentos de exemplo corrigida (`import_seed.py`), diagramas draw.io do processo e "Analisar RFI" abrindo a lista, `v2.1.3` = importar um projeto por JSON descarta o vínculo com a execução (`pocControlId`), que só vale na instância de origem (o "Executar" do exemplo ACME dava "PoC não encontrada").
+
 ## Tema (claro/escuro) e rodapé de build
 
 - Alternância clara/escura: botão no topbar (`web/src/pages/Layout.tsx`), ao lado do seletor de
@@ -380,7 +485,10 @@ usuário -- não têm mais um lugar próprio na casca.
   build, injetadas em build-time via `define` no `vite.config.ts` — não em runtime no navegador
   — pra dar pra confirmar visualmente se um deploy pegou.
 
-## Publicação no Docker Hub
+## Publicação no Docker Hub (aposentada em 2026-11-18)
+
+> Não publicamos mais imagens no Docker Hub nem as mantemos atualizadas: o código vive só no GitLab. O que segue descreve o processo
+> antigo e vale como referência se alguém voltar a publicar imagens (`DOCKER.md` idem).
 
 - Imagens públicas em `gabriellins/poc-control`, duas tags (`:api`, `:web`) — um repositório com
   duas tags, não dois repositórios (plano free do Docker Hub costuma limitar repositórios
@@ -401,20 +509,7 @@ usuário -- não têm mais um lugar próprio na casca.
 - Testar cada marco na Raspberry (`ssh rasp`) antes de seguir para o próximo.
 - Nunca commitar `.env`, chaves, PDFs ou HTMLs de cliente com dados reais. Manter `seed/` e `uploads/` no `.gitignore`, salvo os procedimentos já sanitizados.
 - Antes de rodar Postgres na Raspberry, confirmar que o volume está em SSD, não em cartão SD.
-- Documento de descrição do projeto (público, em inglês, com diagramas Mermaid) no Google Docs:
-  https://docs.google.com/document/d/1vR_UaGw8Z1hFAKDKsO_CVcB7iVWkSP2NP0lLHqu52bI/edit — depois
-  de uma mudança relevante (feature nova, reestruturação, remoção), checar se ele precisa de
-  atualização. Não precisa estar sempre em dia, mas não deixar acumular diferença grande o
-  suficiente pra ele parar de refletir a realidade do projeto.
-- Imagens no Docker Hub (`gabriellins/poc-control:api`/`:web`, ver "Publicação no Docker Hub"
-  acima): mesma lógica — não precisam estar sempre atualizadas, mas quando o código já divergiu
-  bastante do que está publicado (feature grande nova, correção de segurança), rebuildar e subir
-  pra lá. Na prática, pelo menos 1x por dia em dia de trabalho ativo no projeto; sem rigidez
-  nenhuma se não houver mudança real pra publicar.
-- Sempre que houver uma atualização relevante no projeto — nova versão publicada, merge na
-  `main`, PR concluído/mesclado, deploy na Raspberry — mandar uma mensagem formatada avisando no
-  canal do Slack https://suse.slack.com/archives/C06UC7LAFHU, com um resumo das mudanças e o
-  status do deploy quando houver um.
+- Sem avisos no Slack, imagens no Docker Hub nem atualização obrigatória do documento descritivo no Google Docs: essas regras da casa antiga foram aposentadas (ver a nota no topo).
 
 ## Planejador servido em `/planner/`, e também na rota `/`
 
@@ -431,10 +526,11 @@ do planejador, por exemplo). As regras do nginx pra `/planner` e `/planner/` fic
 Por estar na mesma origem do `/api`, essa cópia usa o cookie de sessão e liga o **conector** quando
 `GET /api/planner/capabilities` responde (rota sem login, em `api/app/planner/`). O conector só envia algo ao
 servidor quando a pessoa aciona: `POST /api/planner/hydrate` (importar documento, com tela de revisão no
-planejador), `POST /api/planner/feasibility` (aderência por pesquisa na web, sempre marcada como externa e não
-confirmada), a leitura de `/api/procedimentos` (importar procedimentos pra biblioteca local) e o
+planejador), a leitura de `/api/procedimentos` (importar procedimentos pra biblioteca local) e o
 `/api/pocs/importar-planejador` (habilitar/abrir a execução, com o plano **sem** credenciais). Os endpoints
-`/api/planner/*` não gravam nada no banco. Testes: `cd api && python -m pytest tests`.
+`/api/planner/*` não gravam nada no banco (exceto `procedure-draft`, que cria um rascunho de procedimento). A "Sugerir aderência (pesquisa na
+web)" e o endpoint `feasibility` foram **removidos** (decisão do Gabriel na `v2`, item 3.6); a aderência por histórico (`history`) continua, e
+um projeto salvo antes ainda mostra a etiqueta `web` das sugestões que já tinha. Testes: `cd api && python -m pytest tests`.
 
 Contexto e contratos: `poc-planner/docs/design-unification.md` e as ADRs em `poc-planner/docs/adr/` (no repo do
 planejador). A ADR 2 trata de credenciais.
@@ -469,6 +565,13 @@ varredura nunca impede a api de subir. `POST /api/rfis/{id}/reextrair` (ver "RFI
 RFI, equivalente ao `reextrair_poc` que a PoC já tinha. Limite conhecido: uma tarefa travada **sem** reinício (por
 exemplo uma chamada ao Gemini que não volta) continua `extraindo` até o próximo reinício (não há data de início da
 tarefa para decidir por idade). Testes: `tests/test_recuperacao_db.py` (Postgres, dentro do container da api).
+
+**Envio de arquivos na interface (PoC e RFI):** escolher um arquivo **não o envia**; ele só sobe quando a pessoa confirma ("Criar RFI",
+"Criar PoC", "Enviar N arquivos" numa PoC/RFI existente). A tela diz isso ("Ainda não enviados..."), mostra uma barra de progresso do envio
+(`web/src/components/ProgressoEnvio.tsx`, `api.ts::uploadComProgresso`, que manda o mesmo `X-UI-Lang` de `request()`) terminando em "Envio
+concluído — colocando a análise na fila…", e mantém a seleção na memória da página ao sair da tela e voltar (`web/src/rascunhoUpload.ts`; some
+ao recarregar, e um aviso do navegador pede confirmação ao recarregar/fechar com arquivos escolhidos). Sair da tela NÃO cancela a análise: ela
+roda no servidor; o que a interrompe é reiniciar o contêiner da api (ver acima), então não recrie a api enquanto houver `extraindo`.
 
 ## Propriedade e exclusão permanente (PoC, RFI e Procedimento)
 

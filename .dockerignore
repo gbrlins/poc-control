@@ -1,0 +1,11 @@
+# The only image built from the repo root is `web` (docker-compose.yml: context: ., web/Dockerfile).
+# It needs web/ and poc-planner/index.html; everything else (.git, api/, seed/, docs/, uploads/...)
+# only slows the build down. The api image has its own context (./api).
+*
+!web/
+!poc-planner/index.html
+# Host leftovers must not overwrite what the image installs/builds itself (`COPY web/ .`).
+web/node_modules
+web/dist
+web/tsconfig.tsbuildinfo
+web/tests

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ChaveGeminiStatus, ModeloGemini, User } from "../api";
 import { useLanguage } from "../i18n";
+import { traduzirMensagemServidor } from "../mensagensServidor";
 
 export function MinhaConta({
   user,
@@ -9,12 +10,15 @@ export function MinhaConta({
   user: User;
   onUserAtualizado: (user: User) => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [apiKey, setApiKey] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [removendo, setRemovendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [salvo, setSalvo] = useState(false);
+  // Persistent confirmation of the last key action (saved/removed): the old 3-second "Saved!" on the
+  // button and silent removal left no trace of WHICH key was active or whether a removal happened.
+  const [avisoChave, setAvisoChave] = useState<string | null>(null);
 
   const [modelo, setModelo] = useState(user.gemini_model ?? "");
   const [salvandoModelo, setSalvandoModelo] = useState(false);
@@ -61,6 +65,7 @@ export function MinhaConta({
       const atualizado = await api.salvarChaveGemini(apiKey.trim());
       onUserAtualizado(atualizado);
       setApiKey("");
+      setAvisoChave(t("minhaConta.chaveSalvaAviso"));
       setSalvo(true);
       setResultadoTeste(null);
       recarregarStatusChave();
@@ -74,11 +79,15 @@ export function MinhaConta({
 
   async function remover() {
     setRemovendo(true);
+    setErro(null);
     try {
       const atualizado = await api.removerChaveGemini();
       onUserAtualizado(atualizado);
+      setAvisoChave(t("minhaConta.chaveRemovidaAviso"));
       setResultadoTeste(null);
       recarregarStatusChave();
+    } catch {
+      setErro(t("minhaConta.erroRemover"));
     } finally {
       setRemovendo(false);
     }
@@ -110,18 +119,23 @@ export function MinhaConta({
 
         {user.tem_gemini_key ? (
           <p className="alert alert-success" style={{ marginBottom: 16 }}>
-            {t("minhaConta.temChave")}
+            {t("minhaConta.temChave")} <strong>{t("minhaConta.chaveEmUso")} …{user.gemini_key_final ?? "????"}</strong>
           </p>
         ) : (
           <p className="alert alert-warning" style={{ marginBottom: 16 }}>
             {t("minhaConta.semChave")}
           </p>
         )}
+        {avisoChave && (
+          <p className="alert alert-success" role="status" style={{ marginBottom: 16 }}>
+            {avisoChave}
+          </p>
+        )}
 
         {statusChave && (
           <div className="field-box" style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <span className="muted" style={{ fontSize: 13 }}>
-              {t("minhaConta.chaveEmUso")} <code>{statusChave.chave_mascarada ?? t("minhaConta.chaveOrigemNenhuma")}</code>
+              {t("minhaConta.chaveEmUsoStatus")} <code>{statusChave.chave_mascarada ?? t("minhaConta.chaveOrigemNenhuma")}</code>
               {statusChave.chave_mascarada && (
                 <>
                   {" "}
@@ -136,10 +150,14 @@ export function MinhaConta({
             <button type="button" className="btn btn-outline btn-sm" onClick={() => void testarChave()} disabled={testando || !statusChave.chave_mascarada}>
               {testando ? t("minhaConta.chaveTestando") : t("minhaConta.chaveTestar")}
             </button>
-            {resultadoTeste && (
-              <span className={resultadoTeste.ok ? "pill pill-ok" : "pill pill-warn"}>
-                {resultadoTeste.ok ? t("minhaConta.chaveTesteOk") : resultadoTeste.mensagem}
-              </span>
+            {resultadoTeste?.ok && <span className="pill pill-ok">{t("minhaConta.chaveTesteOk")}</span>}
+            {resultadoTeste && !resultadoTeste.ok && (
+              <span className="pill pill-warn">{t("minhaConta.chaveTesteFalhou")}</span>
+            )}
+            {resultadoTeste && !resultadoTeste.ok && resultadoTeste.mensagem && (
+              <p className="alert alert-warning" style={{ flexBasis: "100%", margin: 0, overflowWrap: "anywhere" }}>
+                {traduzirMensagemServidor(resultadoTeste.mensagem, lang)}
+              </p>
             )}
           </div>
         )}

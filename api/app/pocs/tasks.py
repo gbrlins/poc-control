@@ -12,6 +12,7 @@ from app.gemini import (
     interpretar_erro_gemini,
     modelo_efetivo,
 )
+from app.idioma import marcar
 from app.models import (
     AderenciaItem,
     AderenciaOrigem,
@@ -31,13 +32,6 @@ from app.pocs.planner_import import itens_do_planejador
 from app.pocs.resultados import sincronizar_resultado_catalogo
 
 logger = logging.getLogger(__name__)
-
-_TITULO_PADRAO_POC = {"pt": "PoC sem título", "en": "Untitled PoC", "es": "PoC sin título"}
-
-
-def _titulo_padrao_poc(lang: str | None = None) -> str:
-    return _TITULO_PADRAO_POC.get(lang or "pt", _TITULO_PADRAO_POC["pt"])
-
 
 _PRODUTOS_PLANEJADOR = (
     "virtualization",
@@ -117,27 +111,28 @@ def _aplicar_extracao_gemini(
 
     proxima_ordem = _proxima_ordem(db, Item, poc.id)
     for item in extraido.itens:
-        db.add(
-            Item(
-                poc_id=poc.id,
-                documento_id=documento_id,
-                codigo=item.codigo,
-                titulo=item.titulo,
-                descricao=item.descricao,
-                criterio_aceite=item.criterio_aceite,
-                categoria=item.categoria,
-                categoria_codigo=normalizar_categoria(item.categoria_codigo),
-                fase=item.fase + base_fase,
-                ref=item.ref or None,
-                ordem=proxima_ordem,
-                idioma_original=lang or "pt",
-            )
+        novo = Item(
+            poc_id=poc.id,
+            documento_id=documento_id,
+            codigo=item.codigo,
+            titulo=item.titulo,
+            descricao=item.descricao,
+            criterio_aceite=item.criterio_aceite,
+            categoria=item.categoria,
+            categoria_codigo=normalizar_categoria(item.categoria_codigo),
+            fase=item.fase + base_fase,
+            ref=item.ref or None,
+            ordem=proxima_ordem,
         )
+        marcar(novo, lang, "titulo", "descricao", "criterio_aceite", "categoria")  # a IA escreveu no idioma da tela de quem acionou
+        db.add(novo)
         proxima_ordem += 1
 
     proxima_ordem_prereq = _proxima_ordem(db, Prerequisito, poc.id)
     for pre in extraido.prerequisitos:
-        db.add(Prerequisito(poc_id=poc.id, titulo=pre.titulo, descricao=pre.descricao, ordem=proxima_ordem_prereq))
+        novo_pre = Prerequisito(poc_id=poc.id, titulo=pre.titulo, descricao=pre.descricao, ordem=proxima_ordem_prereq)
+        marcar(novo_pre, lang, "titulo", "descricao")
+        db.add(novo_pre)
         proxima_ordem_prereq += 1
 
     # Só nesse fluxo (import a partir do planejador) título/cliente podem ter ficado em branco na
@@ -146,7 +141,7 @@ def _aplicar_extracao_gemini(
     # (importar_planejador), então não há risco de um 2º documento repetir esta parte.
     if hidratar_planejador:
         if not poc.titulo:
-            poc.titulo = extraido.titulo_sugerido or _titulo_padrao_poc(lang)
+            poc.titulo = extraido.titulo_sugerido or "Untitled PoC"
         if not poc.cliente:
             poc.cliente = extraido.cliente_sugerido or ""
 
@@ -203,6 +198,8 @@ def _aplicar_planejador(db, poc: Poc, documento_id: uuid.UUID, planejador: dict)
             responsavel=d["responsavel"],
         )
         proxima_ordem += 1
+        if planejador.get("idioma"):
+            marcar(item, planejador["idioma"], "titulo", "criterio_aceite", "categoria")
         db.add(item)
         criados.append(item)
     db.flush()  # dá id aos itens; o histórico só grava resultados terminais
@@ -278,7 +275,7 @@ def processar_poc(
         if poc is None:
             return
         if not poc.titulo:
-            poc.titulo = _titulo_padrao_poc(lang)
+            poc.titulo = "Untitled PoC"
         # Só vira `erro` se NENHUM documento deu certo; se algum falhou e outro não, a PoC fica
         # `pronto` com a mensagem em erro_extracao (o front mostra como aviso) -- igual ao RFI.
         poc.erro_extracao = "\n".join(erros) or None

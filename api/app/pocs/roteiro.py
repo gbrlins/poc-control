@@ -4,13 +4,14 @@ from datetime import date
 import markdown as markdown_lib
 
 from app.models import Item, Poc
+from app.relatorio_i18n import fmt_data, html_lang, t
 
-_CAMPO_REDE_LABEL = [
-    ("cidr_gerenciamento", "CIDR de gerência"),
-    ("gateway", "Gateway"),
-    ("vip_cluster", "VIP do cluster"),
-    ("pool_ip_inicio", "Pool de IP (início)"),
-    ("pool_ip_fim", "Pool de IP (fim)"),
+_CAMPO_REDE = [
+    ("cidr_gerenciamento", "ambiente.cidr"),
+    ("gateway", "ambiente.gateway"),
+    ("vip_cluster", "ambiente.vip"),
+    ("pool_ip_inicio", "ambiente.pool_ini"),
+    ("pool_ip_fim", "ambiente.pool_fim"),
 ]
 
 
@@ -22,7 +23,7 @@ def _markdown(texto: str) -> str:
     return markdown_lib.markdown(texto or "", extensions=["tables"])
 
 
-def montar_ambiente_html(poc: Poc) -> str:
+def montar_ambiente_html(poc: Poc, lang: str = "en") -> str:
     """Bloco "Ambiente desta PoC": parâmetros técnicos capturados na importação do JSON do
     Planejar PoC (ver app/pocs/planner_import.py). Nunca inclui credenciais."""
     params = poc.parametros_tecnicos
@@ -32,10 +33,10 @@ def montar_ambiente_html(poc: Poc) -> str:
     blocos = []
     produtos = params.get("produtos_selecionados") or []
     if produtos:
-        blocos.append(f"<p><strong>Produtos selecionados:</strong> {_esc(', '.join(produtos))}</p>")
+        blocos.append(f"<p><strong>{t(lang, 'ambiente.produtos')}:</strong> {_esc(', '.join(produtos))}</p>")
 
     rede = params.get("rede") or {}
-    linhas_rede = [(label, rede.get(campo)) for campo, label in _CAMPO_REDE_LABEL if rede.get(campo)]
+    linhas_rede = [(t(lang, chave), rede.get(campo)) for campo, chave in _CAMPO_REDE if rede.get(campo)]
     if linhas_rede:
         linhas_html = "".join(f"<tr><td>{_esc(l)}</td><td>{_esc(v)}</td></tr>" for l, v in linhas_rede)
         blocos.append(f"<table class='params'><tbody>{linhas_html}</tbody></table>")
@@ -56,10 +57,10 @@ def montar_ambiente_html(poc: Poc) -> str:
 
     if not blocos:
         return ""
-    return "<h2>Ambiente desta PoC</h2>" + "".join(blocos)
+    return f"<h2>{t(lang, 'ambiente.titulo')}</h2>" + "".join(blocos)
 
 
-def montar_roteiro_html(poc: Poc, itens: list[Item]) -> str:
+def montar_roteiro_html(poc: Poc, itens: list[Item], lang: str = "en") -> str:
     itens_ordenados = sorted(itens, key=lambda i: (i.fase, i.ordem))
     fase_titulo = {f["numero"]: f["titulo"] for f in (poc.fases or [])}
 
@@ -68,38 +69,38 @@ def montar_roteiro_html(poc: Poc, itens: list[Item]) -> str:
     for item in itens_ordenados:
         if item.fase != fase_atual:
             fase_atual = item.fase
-            blocos.append(f"<h2>{_esc(fase_titulo.get(fase_atual, f'Fase {fase_atual}'))}</h2>")
+            blocos.append(f"<h2>{_esc(fase_titulo.get(fase_atual, t(lang, 'comum.fase', n=fase_atual)))}</h2>")
 
         blocos.append(f"<div class='item'><h3>{_esc(item.codigo)} — {_esc(item.titulo)}</h3>")
         if item.descricao:
             blocos.append(f"<p>{_esc(item.descricao)}</p>")
         if item.criterio_aceite:
             blocos.append(
-                f"<p class='criterio'><strong>Critério de aceite:</strong> {_esc(item.criterio_aceite)}</p>"
+                f"<p class='criterio'><strong>{t(lang, 'roteiro.criterio')}:</strong> {_esc(item.criterio_aceite)}</p>"
             )
 
         classificacao = item.classificacao
         procedimento = classificacao.procedimento if classificacao else None
         if procedimento is not None:
-            blocos.append(f"<p class='proc-link'><strong>Procedimento:</strong> {_esc(procedimento.titulo)}</p>")
+            blocos.append(f"<p class='proc-link'><strong>{t(lang, 'roteiro.procedimento')}:</strong> {_esc(procedimento.titulo)}</p>")
             for chunk in procedimento.chunks:
                 blocos.append(
                     f"<div class='passo'><h4>{_esc(chunk.heading_title)}</h4>{_markdown(chunk.content_text)}</div>"
                 )
         elif classificacao is not None:
             blocos.append(
-                f"<p class='alert alert-{classificacao.flag.value}'><strong>Sem procedimento vinculado</strong> "
-                f"(semáforo: {classificacao.flag.value}). {_esc(classificacao.justificativa or '')}</p>"
+                f"<p class='alert alert-{classificacao.flag.value}'><strong>{t(lang, 'roteiro.sem_proc')}</strong> "
+                f"({t(lang, 'roteiro.semaforo', flag=t(lang, 'flag.' + classificacao.flag.value))}). {_esc(classificacao.justificativa or '')}</p>"
             )
         else:
-            blocos.append("<p class='alert'>Item ainda não classificado.</p>")
+            blocos.append(f"<p class='alert'>{t(lang, 'roteiro.nao_class')}</p>")
         blocos.append("</div>")
 
     return f"""<!doctype html>
-<html lang="pt-BR">
+<html lang="{html_lang(lang)}">
 <head>
 <meta charset="utf-8">
-<title>{_esc(poc.titulo)} — Roteiro do dia</title>
+<title>{_esc(poc.titulo)} — {t(lang, 'roteiro.titulo')}</title>
 <style>
   body {{ font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; max-width: 900px; margin: 40px auto; padding: 0 20px; }}
   h1 {{ margin-bottom: 4px; }}
@@ -123,9 +124,9 @@ def montar_roteiro_html(poc: Poc, itens: list[Item]) -> str:
 </head>
 <body>
   <h1>{_esc(poc.titulo)}</h1>
-  <div class="sub">{_esc(poc.cliente)} · Roteiro do dia · gerado em {date.today().strftime('%d/%m/%Y')}</div>
-  {montar_ambiente_html(poc)}
-  <h2>Itens selecionados para hoje</h2>
-  {''.join(blocos) if blocos else '<p>Nenhum item selecionado.</p>'}
+  <div class="sub">{_esc(poc.cliente)} · {t(lang, 'roteiro.titulo')} · {t(lang, 'comum.gerado_em')} {fmt_data(lang, date.today())}</div>
+  {montar_ambiente_html(poc, lang)}
+  <h2>{t(lang, 'roteiro.itens_hoje')}</h2>
+  {''.join(blocos) if blocos else '<p>' + t(lang, 'roteiro.vazio') + '</p>'}
 </body>
 </html>"""

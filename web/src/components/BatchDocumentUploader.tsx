@@ -14,6 +14,7 @@ export function BatchDocumentUploader({
   selectLabel,
   removeLabel,
   newBadgeLabel,
+  pendingHint,
 }: {
   files: File[];
   onFilesChange: (files: File[]) => void;
@@ -22,6 +23,8 @@ export function BatchDocumentUploader({
   selectLabel: string;
   removeLabel: string;
   newBadgeLabel?: string;
+  /** Aviso mostrado enquanto há arquivos escolhidos: escolher não envia nada, o envio é um passo à parte. */
+  pendingHint?: string;
 }) {
   function adicionar(novos: File[]) {
     onFilesChange([
@@ -70,6 +73,11 @@ export function BatchDocumentUploader({
         {selectLabel}
         <input type="file" multiple hidden disabled={disabled} accept={accept} onChange={escolher} />
       </label>
+      {files.length > 0 && pendingHint && (
+        <p className="field-hint" role="note">
+          {pendingHint}
+        </p>
+      )}
     </div>
   );
 }

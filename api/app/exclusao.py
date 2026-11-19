@@ -122,7 +122,7 @@ def excluir(db: Session, user: User, tipo: str, recurso, confirmar: str) -> None
             "Esta linha não tem dono: assuma-a antes de excluir." if recurso.responsavel_id is None else "Só o dono pode excluir.",
         )
     if (confirmar or "").strip() != _titulo_de_confirmacao(recurso):
-        raise ExclusaoErro(400, "O título digitado não confere.")
+        raise ExclusaoErro(400, "The title you typed does not match.")
 
     titulo = _titulo_de_confirmacao(recurso)
     recurso_id = recurso.id

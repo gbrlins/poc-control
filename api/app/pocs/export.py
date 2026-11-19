@@ -2,20 +2,15 @@ import html as html_lib
 from datetime import date
 
 from app.models import FlagClassificacao, Poc, StatusItem
+from app.relatorio_i18n import fmt_data, html_lang, t
 
-_STATUS_LABEL = {
-    StatusItem.pendente: "Pendente",
-    StatusItem.em_andamento: "Em andamento",
-    StatusItem.concluido: "Concluído",
-    StatusItem.bloqueado: "Bloqueado",
-    StatusItem.nao_aplicavel: "N/A",
-}
+def _status_label(lang, status) -> str:
+    return t(lang, f"status.{status.value}")
 
-_FLAG_LABEL = {
-    FlagClassificacao.verde: "Verde",
-    FlagClassificacao.amarelo: "Amarelo",
-    FlagClassificacao.vermelho: "Vermelho",
-}
+
+def _flag_label(lang, flag) -> str:
+    return t(lang, f"flag.{flag.value}")
+
 
 _FLAG_COLOR = {
     FlagClassificacao.verde: "#1f9a5e",
@@ -28,7 +23,7 @@ def _esc(valor: str | None) -> str:
     return html_lib.escape(valor or "")
 
 
-def montar_export_html(poc: Poc) -> str:
+def montar_export_html(poc: Poc, lang: str = "en") -> str:
     total = len(poc.itens)
     concluidos = sum(1 for i in poc.itens if i.status == StatusItem.concluido)
     pct = round(concluidos / total * 100) if total else 0
@@ -40,20 +35,20 @@ def montar_export_html(poc: Poc) -> str:
 
     linhas_itens = []
     for numero in sorted(por_fase):
-        titulo = fase_titulo.get(numero, f"Fase {numero}")
+        titulo = fase_titulo.get(numero, t(lang, "comum.fase", n=numero))
         linhas_itens.append(f'<tr class="fase-row"><td colspan="4"><strong>{_esc(titulo)}</strong></td></tr>')
         for item in sorted(por_fase[numero], key=lambda i: i.ordem):
             classificacao = item.classificacao
             if classificacao:
                 cor = _FLAG_COLOR[classificacao.flag]
-                flag_html = f'<span style="color:{cor};font-weight:600">{_FLAG_LABEL[classificacao.flag]}</span>'
+                flag_html = f'<span style="color:{cor};font-weight:600">{_flag_label(lang, classificacao.flag)}</span>'
                 if classificacao.procedimento:
                     flag_html += f"<br><small>{_esc(classificacao.procedimento.titulo)}</small>"
             else:
                 flag_html = '<span style="color:#888">—</span>'
             linhas_itens.append(
                 f"<tr><td>{_esc(item.codigo)}</td><td>{_esc(item.titulo)}</td>"
-                f"<td>{_STATUS_LABEL[item.status]}</td><td>{flag_html}</td></tr>"
+                f"<td>{_status_label(lang, item.status)}</td><td>{flag_html}</td></tr>"
             )
 
     prereq_linhas = "".join(
@@ -64,15 +59,15 @@ def montar_export_html(poc: Poc) -> str:
 
     sessao_blocos = []
     for s in sorted(poc.sessoes, key=lambda s: s.data):
-        bloco = f"<h3>{s.data.strftime('%d/%m/%Y')}</h3>"
+        bloco = f"<h3>{fmt_data(lang, s.data)}</h3>"
         if s.participantes:
-            bloco += f"<p><em>Participantes: {_esc(', '.join(s.participantes))}</em></p>"
+            bloco += f"<p><em>{t(lang, 'comum.participantes')}: {_esc(', '.join(s.participantes))}</em></p>"
         if s.agenda:
             bloco += f"<p>{_esc(s.agenda)}</p>"
         for rotulo, campo in (
-            ("Resolvido", s.pontos_resolvidos),
-            ("Pendências", s.pontos_falha),
-            ("Próximos passos", s.proximos_passos),
+            (t(lang, "comum.resolvido"), s.pontos_resolvidos),
+            (t(lang, "comum.pendencias"), s.pontos_falha),
+            (t(lang, "comum.proximos_passos"), s.proximos_passos),
         ):
             if campo:
                 itens_html = "".join(f"<li>{_esc(p)}</li>" for p in campo)
@@ -80,10 +75,10 @@ def montar_export_html(poc: Poc) -> str:
         sessao_blocos.append(bloco)
 
     return f"""<!doctype html>
-<html lang="pt-BR">
+<html lang="{html_lang(lang)}">
 <head>
 <meta charset="utf-8">
-<title>{_esc(poc.titulo)} — Status</title>
+<title>{_esc(poc.titulo)} — {t(lang, 'export.titulo')}</title>
 <style>
   body {{ font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; max-width: 900px; margin: 40px auto; padding: 0 20px; }}
   h1 {{ margin-bottom: 4px; }}
@@ -100,19 +95,19 @@ def montar_export_html(poc: Poc) -> str:
 </head>
 <body>
   <h1>{_esc(poc.titulo)}</h1>
-  <div class="sub">{_esc(poc.cliente)} · gerado em {date.today().strftime('%d/%m/%Y')}</div>
-  <p class="pct">{pct}% dos itens concluídos ({concluidos}/{total})</p>
+  <div class="sub">{_esc(poc.cliente)} · {t(lang, 'comum.gerado_em')} {fmt_data(lang, date.today())}</div>
+  <p class="pct">{t(lang, 'export.pct', pct=pct, c=concluidos, t=total)}</p>
 
-  <h2>Plano de testes</h2>
+  <h2>{t(lang, 'export.plano')}</h2>
   <table>
-    <thead><tr><th>Código</th><th>Item</th><th>Status</th><th>Classificação</th></tr></thead>
+    <thead><tr><th>{t(lang, 'export.col_codigo')}</th><th>{t(lang, 'comum.item')}</th><th>{t(lang, 'comum.status')}</th><th>{t(lang, 'export.col_class')}</th></tr></thead>
     <tbody>{"".join(linhas_itens)}</tbody>
   </table>
 
-  <h2>Pré-requisitos</h2>
-  <ul>{prereq_linhas or "<li>Nenhum</li>"}</ul>
+  <h2>{t(lang, 'export.prereq')}</h2>
+  <ul>{prereq_linhas or f"<li>{t(lang, 'comum.nenhum')}</li>"}</ul>
 
-  <h2>Sessões</h2>
-  {"".join(sessao_blocos) or "<p>Nenhuma sessão registrada.</p>"}
+  <h2>{t(lang, 'export.sessoes')}</h2>
+  {"".join(sessao_blocos) or "<p>{t(lang, 'comum.sessoes_vazio')}</p>"}
 </body>
 </html>"""

@@ -9,7 +9,7 @@ from app.crypto import encrypt_secret
 from app.db import get_db
 from app.deps import SESSION_COOKIE_NAME, get_current_user
 from app.gemini import interpretar_erro_gemini, listar_modelos_texto
-from app.gemini_key import resolve_api_key
+from app.gemini_key import chave_final, resolve_api_key
 from app.models import User
 from app.security import create_session_cookie, verify_password
 
@@ -26,6 +26,8 @@ class UserOut(BaseModel):
     email: str
     is_admin: bool
     tem_gemini_key: bool
+    # Últimos 4 caracteres da chave pessoal (identifica qual chave está em uso); nulo sem chave.
+    gemini_key_final: str | None = None
     gemini_model: str | None
 
 
@@ -58,9 +60,11 @@ class TesteChaveGeminiOut(BaseModel):
 
 
 def _mascarar_chave(chave: str) -> str:
+    """Só os 4 últimos caracteres (como em `gemini_key.chave_final` e na tela Minha conta): o suficiente para saber QUAL chave está em uso
+    sem revelar mais do que isso, inclusive da chave compartilhada do servidor, que todo usuário logado consulta."""
     if len(chave) <= 8:
         return "…"
-    return f"{chave[:4]}…{chave[-4:]}"
+    return f"…{chave[-4:]}"
 
 
 def _user_out(user: User) -> UserOut:
@@ -69,6 +73,7 @@ def _user_out(user: User) -> UserOut:
         email=user.email,
         is_admin=user.is_admin,
         tem_gemini_key=bool(user.gemini_api_key_encrypted),
+        gemini_key_final=chave_final(user),
         gemini_model=user.gemini_model,
     )
 
@@ -77,7 +82,7 @@ def _user_out(user: User) -> UserOut:
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "E-mail ou senha inválidos")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
 
     user.ultimo_login = datetime.now(timezone.utc)
     db.commit()
@@ -140,7 +145,7 @@ def buscar_usuario_por_email(email: str, db: Session = Depends(get_db), _: User 
     listagem completa de usuários (/api/users é admin-only) a quem não é admin."""
     usuario = db.query(User).filter(User.email == email.strip()).first()
     if usuario is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     return UsuarioLookupOut(id=str(usuario.id), email=usuario.email)
 
 

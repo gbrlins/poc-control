@@ -15,6 +15,7 @@ web/tsconfig.tsbuildinfo
 
 seed/*
 !seed/procedimentos
+!seed/poc
 
 uploads/
 uploads_v2/

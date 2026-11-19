@@ -16,8 +16,8 @@ from app.models import Poc, Rfi, StatusExtracao
 logger = logging.getLogger(__name__)
 
 MENSAGEM_REINICIO = (
-    "A extração foi interrompida por um reinício do servidor antes de terminar. "
-    "Use \"Tentar de novo\" para refazê-la."
+    "The extraction was interrupted by a server restart before it finished. "
+    "Use \"Try again\" to redo it."
 )
 
 

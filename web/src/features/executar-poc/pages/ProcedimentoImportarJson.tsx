@@ -9,6 +9,7 @@ export function ProcedimentoImportarJson() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [texto, setTexto] = useState("");
+  const [nomeArquivo, setNomeArquivo] = useState<string | null>(null);
   const [itens, setItens] = useState<unknown[] | null>(null);
   const [previa, setPrevia] = useState<PreviaItemImportacao[] | null>(null);
   const [decisoes, setDecisoes] = useState<Record<number, Decisao>>({});
@@ -19,6 +20,10 @@ export function ProcedimentoImportarJson() {
   function parseEItens(): unknown[] | null {
     try {
       const parsed = JSON.parse(texto);
+      // A biblioteca exportada pelo planejador ("Export library") traz os procedimentos em `procedures`; o servidor converte os campos.
+      if (parsed && !Array.isArray(parsed) && parsed.kind === "suse-poc-procedure-library" && Array.isArray(parsed.procedures)) {
+        return parsed.procedures;
+      }
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch {
       setErro(t("procedimentoImportarJson.erroJsonInvalido"));
@@ -67,6 +72,18 @@ export function ProcedimentoImportarJson() {
     }
   }
 
+  // O arquivo escolhido vai para a caixa de texto: assim dá para conferir e ajustar o JSON antes de validar, e colar continua valendo.
+  async function lerArquivo(arquivo: File | null) {
+    if (!arquivo) return;
+    try {
+      setTexto(await arquivo.text());
+      setNomeArquivo(arquivo.name);
+      setErro(null);
+    } catch {
+      setErro(t("procedimentoImportarJson.erroLerArquivo"));
+    }
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -79,6 +96,22 @@ export function ProcedimentoImportarJson() {
 
       {!previa && (
         <div className="card">
+          <div className="field">
+            <label htmlFor="json-arquivo">{t("procedimentoImportarJson.labelArquivo")}</label>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <label className="btn btn-outline" style={{ cursor: "pointer" }}>
+                {t("common.escolherArquivo")}
+                <input
+                  id="json-arquivo"
+                  type="file"
+                  accept=".json,application/json"
+                  hidden
+                  onChange={(e) => void lerArquivo(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <span className="muted">{nomeArquivo ?? t("common.nenhumArquivo")}</span>
+            </div>
+          </div>
           <div className="field">
             <label htmlFor="json-texto">{t("procedimentoImportarJson.labelTexto")}</label>
             <textarea

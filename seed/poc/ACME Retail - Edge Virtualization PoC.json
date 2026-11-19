@@ -1,0 +1,916 @@
+{
+  "schema": 2,
+  "planner": {
+    "lang": "en",
+    "view": "summary",
+    "lastStep": "summary",
+    "project": {
+      "projectName": "ACME Retail - Edge Virtualization PoC",
+      "leadEngineer": "Ana Souza",
+      "leadEmail": "ana.souza@example.com",
+      "organization": "SUSE",
+      "clientOrganization": "ACME Retail S.A.",
+      "contacts": [
+        {
+          "name": "Carlos Lima",
+          "role": "IT Infrastructure Manager",
+          "email": "carlos.lima@acme.example",
+          "phone": "+55 11 5550-0101"
+        },
+        {
+          "name": "Marina Costa",
+          "role": "Security Architect",
+          "email": "marina.costa@acme.example",
+          "phone": "+55 11 5550-0102"
+        },
+        {
+          "name": "Rafael Dias",
+          "role": "Network Engineer",
+          "email": "rafael.dias@acme.example",
+          "phone": "+55 11 5550-0103"
+        }
+      ],
+      "startDate": "2026-11-02",
+      "targetDate": "2026-11-20",
+      "presalesUseCase": "VM modernisation and platform consolidation for retail stores",
+      "businessIssue": "The current hypervisor licence renews in Q1 and per-socket costs doubled; the team wants one Kubernetes-based platform for VMs and containers.",
+      "targetInfrastructure": "3 x 2U servers (16 cores, 64 GB RAM, 2 x 250 GB SSD + 500 GB data disk, 4 x 10 GbE) in the Sao Paulo lab, top-of-rack switches with trunked ports."
+    },
+    "selectedProducts": {
+      "virtualization": true,
+      "rancher": true,
+      "security": true,
+      "storage": true,
+      "observability": true,
+      "registry": true,
+      "appcollection": true,
+      "manager": true
+    },
+    "infra": {
+      "virtualization": {
+        "nodeCount": 3,
+        "cpuCores": 16,
+        "ramGb": 64,
+        "diskGb": 500,
+        "diskType": "SSD"
+      },
+      "rancher": {
+        "vmSize": {
+          "cpu": 8,
+          "ram": 16,
+          "disk": 80
+        }
+      },
+      "observability": {
+        "vmSize": {
+          "cpu": 8,
+          "ram": 32,
+          "disk": 300
+        }
+      },
+      "manager": {
+        "nodeCount": 1,
+        "cpuCores": 4,
+        "ramGb": 32,
+        "diskGb": 230,
+        "clientProducts": [
+          {
+            "name": "SUSE Linux Enterprise Server 15 SP6",
+            "arch": "x86_64"
+          },
+          {
+            "name": "SUSE Linux Micro 6.1",
+            "arch": "x86_64"
+          },
+          {
+            "name": "Ubuntu 24.04 LTS",
+            "arch": "x86_64"
+          }
+        ]
+      },
+      "addons": {
+        "vmSize": {
+          "cpu": 8,
+          "ram": 16,
+          "disk": 150
+        }
+      }
+    },
+    "network": {
+      "managementCidr": "10.20.30.0/24",
+      "gatewayIp": "10.20.30.1",
+      "subnetMask": "255.255.255.0",
+      "clusterVip": "10.20.30.10",
+      "dnsServers": "10.20.30.2, 10.20.30.3",
+      "ntpServers": "10.20.30.4, 10.20.30.5",
+      "domain": "acme.lab",
+      "httpProxy": "http://proxy.acme.lab:3128",
+      "httpsProxy": "http://proxy.acme.lab:3128",
+      "noProxy": "localhost,127.0.0.1,0.0.0.0,10.20.30.0/24,.svc,.cluster.local,.acme.lab,10.20.30.10",
+      "hasFirewall": true,
+      "hasProxy": true,
+      "hasAirGap": false,
+      "hasExternalStorage": false,
+      "hasLoadBalancer": true,
+      "ipPoolStart": "10.20.30.20",
+      "ipPoolEnd": "10.20.30.60",
+      "vms": [
+        {
+          "key": "virtualization-0",
+          "product": "virtualization",
+          "role": "Management/HCI",
+          "hostname": "virtualization-1",
+          "ip": "10.20.30.20",
+          "user": "rancher",
+          "password": "demo-not-a-real-password"
+        },
+        {
+          "key": "virtualization-1",
+          "product": "virtualization",
+          "role": "Management/HCI",
+          "hostname": "virtualization-2",
+          "ip": "10.20.30.21",
+          "user": "rancher",
+          "password": "demo-not-a-real-password"
+        },
+        {
+          "key": "virtualization-2",
+          "product": "virtualization",
+          "role": "Management/HCI",
+          "hostname": "virtualization-3",
+          "ip": "10.20.30.22",
+          "user": "rancher",
+          "password": "demo-not-a-real-password"
+        },
+        {
+          "key": "rancher-vm",
+          "product": "rancher",
+          "role": "Rancher Server",
+          "hostname": "rancher-1",
+          "ip": "10.20.30.23",
+          "user": "opensuse",
+          "password": "demo-not-a-real-password"
+        },
+        {
+          "key": "observability-vm",
+          "product": "observability",
+          "role": "Observability",
+          "hostname": "observability-1",
+          "ip": "10.20.30.24",
+          "user": "opensuse",
+          "password": "demo-not-a-real-password"
+        },
+        {
+          "key": "manager-0",
+          "product": "manager",
+          "role": "Multi-Linux Manager Server",
+          "hostname": "manager-1",
+          "ip": "10.20.30.25",
+          "user": "root",
+          "password": "demo-not-a-real-password"
+        },
+        {
+          "key": "addons-vm",
+          "product": "addons",
+          "role": "Downstream cluster (security, storage, registry · pulls from Application Collection)",
+          "hostname": "downstream-1",
+          "ip": "10.20.30.26",
+          "user": "opensuse",
+          "password": "demo-not-a-real-password"
+        }
+      ]
+    },
+    "credentials": {
+      "suseRegistrationCode": "DEMO-REG-CODE-0000",
+      "sccUser": "demo-scc-user",
+      "sccPassword": "demo-not-a-real-password",
+      "rancherBootstrapPassword": "demo-not-a-real-password",
+      "appCollectionUser": "demo-ac-user",
+      "appCollectionToken": "demo-not-a-real-token",
+      "privateRegistryAdminUser": "admin",
+      "privateRegistryAdminPassword": "demo-not-a-real-password",
+      "neuvectorAdminUser": "admin",
+      "neuvectorAdminPassword": "demo-not-a-real-password",
+      "virtualizationUiUser": "admin",
+      "virtualizationUiPassword": "demo-not-a-real-password",
+      "virtualizationShellUser": "rancher",
+      "virtualizationShellPassword": "demo-not-a-real-password",
+      "virtualizationClusterToken": "demo-not-a-real-cluster-token",
+      "directoryBindPassword": "demo-not-a-real-password",
+      "observabilityUser": "admin",
+      "observabilityPassword": "demo-not-a-real-password",
+      "stackstateLicense": "DEMO-LICENSE-NOT-VALID",
+      "managerActivationKey": "1-demo-activation-key",
+      "notes": "Demo project: every credential here is a placeholder."
+    },
+    "ports": {
+      "checked": {
+        "virtualization-0": true,
+        "virtualization-1": true,
+        "virtualization-2": true,
+        "virtualization-3": true,
+        "virtualization-5": true,
+        "virtualization-6": true,
+        "virtualization-7": true,
+        "virtualization-8": true,
+        "virtualization-9": true,
+        "virtualization-11": true,
+        "virtualization-12": true,
+        "virtualization-13": true,
+        "virtualization-14": true,
+        "virtualization-15": true,
+        "virtualization-17": true,
+        "virtualization-18": true,
+        "virtualization-19": true,
+        "virtualization-20": true,
+        "virtualization-21": true,
+        "virtualization-23": true,
+        "virtualization-24": true,
+        "virtualization-25": true,
+        "virtualization-26": true,
+        "virtualization-27": true,
+        "rancher-0": true,
+        "rancher-1": true,
+        "rancher-2": true,
+        "rancher-3": true,
+        "rancher-4": true,
+        "rancher-6": true,
+        "rancher-7": true,
+        "security-0": true,
+        "security-1": true,
+        "security-2": true,
+        "security-3": true,
+        "storage-0": true,
+        "storage-1": true,
+        "storage-2": true,
+        "storage-3": true,
+        "storage-4": true,
+        "observability-0": true,
+        "observability-1": true,
+        "registry-0": true,
+        "appcollection-0": true,
+        "manager-0": true,
+        "manager-1": true,
+        "manager-2": true,
+        "manager-3": true,
+        "h:on-k3s": true,
+        "h:on-ac": true,
+        "h:on-helm": true,
+        "h:on-rreg": true,
+        "h:on-sreg": true,
+        "h:on-docker": true,
+        "h:on-scc": true,
+        "h:on-le": true,
+        "h:ntp": true,
+        "h:virt-upgrade": true,
+        "h:virt-backup": true,
+        "h:dir": true,
+        "h:mlm-upd": true,
+        "h:mlm-3rd": true,
+        "h:proxy": true
+      }
+    },
+    "testResults": {},
+    "virtInstall": {
+      "installMethod": "iso",
+      "targetVersion": "v1.8.2",
+      "vipMode": "static",
+      "vipReserved": false,
+      "sshKeysUrl": "",
+      "configUrl": "",
+      "diskLayout": "dedicated",
+      "persistentGiB": 150,
+      "largestVolumeGB": 100,
+      "uuidChecked": false,
+      "serverClass": false,
+      "testVms": []
+    },
+    "virtNet": {
+      "mgmtNics": 2,
+      "vmNics": 2,
+      "nicSpeed": "10G",
+      "switchTrunk": true,
+      "ipMode": "static",
+      "vmNetworks": [
+        {
+          "name": "vm-prod",
+          "vlan": "110",
+          "uplink": "vm-bond"
+        },
+        {
+          "name": "vm-dmz",
+          "vlan": "120",
+          "uplink": "vm-bond"
+        }
+      ],
+      "storageNet": {
+        "dedicated": true,
+        "vlan": "200",
+        "nics": "2 x 10G"
+      },
+      "backup": {
+        "type": "s3",
+        "endpoint": "https://minio.acme.lab:9000",
+        "bucket": "harvester-backup"
+      },
+      "auth": {
+        "provider": "ad",
+        "server": "dc1.acme.lab",
+        "port": "636",
+        "tls": true,
+        "privateCa": true,
+        "svcUser": "ACME\\svc-rancher",
+        "defaultDomain": "ACME",
+        "userBase": "ou=people,dc=acme,dc=lab",
+        "groupBase": "ou=groups,dc=acme,dc=lab",
+        "loginAttr": "sAMAccountName",
+        "adminUser": "ACME\\ana.souza"
+      }
+    },
+    "testDismissed": [],
+    "pocControlId": "",
+    "testCases": {
+      "virtualization": [
+        {
+          "id": "eo7tasy",
+          "catalogId": "virt-install-iso",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-11; screenshots in the shared folder (ACME-PoC/evidence/101)",
+          "notes": ""
+        },
+        {
+          "id": "0qzr89s",
+          "catalogId": "virt-add-nodes",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-12; screenshots in the shared folder (ACME-PoC/evidence/102)",
+          "notes": ""
+        },
+        {
+          "id": "ggh3206",
+          "catalogId": "virt-storage-net",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Run on 2026-11-13; screenshots in the shared folder (ACME-PoC/evidence/103)",
+          "notes": ""
+        },
+        {
+          "id": "knsvm3k",
+          "catalogId": "virt-vlan-net",
+          "result": "partial",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "",
+          "notes": "Works, but needs the customer's private CA imported first; follow-up scheduled."
+        },
+        {
+          "id": "yrnwely",
+          "catalogId": "virt-image",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-15; screenshots in the shared folder (ACME-PoC/evidence/105)",
+          "notes": ""
+        },
+        {
+          "id": "j7qfigv",
+          "catalogId": "virt-sc-volume",
+          "result": "running",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "abgelyr",
+          "catalogId": "virt-vm-create",
+          "result": "scheduled",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "i8hlnpr",
+          "catalogId": "virt-resize",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "Run on 2026-11-10; screenshots in the shared folder (ACME-PoC/evidence/108)",
+          "notes": ""
+        },
+        {
+          "id": "jg8w815",
+          "catalogId": "virt-storage-ext",
+          "result": "pending",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "dj0tkus",
+          "catalogId": "virt-livemig",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-12; screenshots in the shared folder (ACME-PoC/evidence/110)",
+          "notes": ""
+        },
+        {
+          "id": "0g7yw60",
+          "catalogId": "virt-backup-target",
+          "result": "fail",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Timeout after 30 min on the stores VLAN",
+          "notes": "Suspected firewall rule between the VM network and the storage target; ticket opened with the network team."
+        },
+        {
+          "id": "ay5xec6",
+          "catalogId": "virt-backup",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "Run on 2026-11-14; screenshots in the shared folder (ACME-PoC/evidence/112)",
+          "notes": ""
+        },
+        {
+          "id": "asfue8x",
+          "catalogId": "virt-restore",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-15; screenshots in the shared folder (ACME-PoC/evidence/113)",
+          "notes": ""
+        },
+        {
+          "id": "wt1j57o",
+          "catalogId": "virt-rancher-deploy",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-16; screenshots in the shared folder (ACME-PoC/evidence/114)",
+          "notes": ""
+        },
+        {
+          "id": "e8ntblv",
+          "catalogId": "virt-rancher-import",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Run on 2026-11-17; screenshots in the shared folder (ACME-PoC/evidence/115)",
+          "notes": ""
+        },
+        {
+          "id": "x027awn",
+          "catalogId": "virt-maint",
+          "result": "partial",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "",
+          "notes": "Works, but needs the customer's private CA imported first; follow-up scheduled."
+        },
+        {
+          "id": "myxuzwo",
+          "catalogId": "virt-dr-node-fail",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-11; screenshots in the shared folder (ACME-PoC/evidence/117)",
+          "notes": ""
+        },
+        {
+          "id": "wv349ye",
+          "catalogId": "virt-dr-failback",
+          "result": "running",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "",
+          "notes": ""
+        }
+      ],
+      "rancher": [
+        {
+          "id": "00cts23",
+          "catalogId": "rancher-install",
+          "result": "scheduled",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "f4poiw2",
+          "catalogId": "rancher-firstlogin",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "Run on 2026-11-14; screenshots in the shared folder (ACME-PoC/evidence/120)",
+          "notes": ""
+        },
+        {
+          "id": "ratkcly",
+          "catalogId": "rancher-tls",
+          "result": "pending",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "hk8wjgk",
+          "catalogId": "rancher-system",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-16; screenshots in the shared folder (ACME-PoC/evidence/122)",
+          "notes": ""
+        },
+        {
+          "id": "3q8nr20",
+          "catalogId": "rancher-provision",
+          "result": "fail",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Timeout after 30 min on the stores VLAN",
+          "notes": "Suspected firewall rule between the VM network and the storage target; ticket opened with the network team."
+        },
+        {
+          "id": "pe70vb7",
+          "catalogId": "rancher-import",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "Run on 2026-11-10; screenshots in the shared folder (ACME-PoC/evidence/124)",
+          "notes": ""
+        },
+        {
+          "id": "s8nyda6",
+          "catalogId": "rancher-agent",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-11; screenshots in the shared folder (ACME-PoC/evidence/125)",
+          "notes": ""
+        },
+        {
+          "id": "h7jz0x9",
+          "catalogId": "rancher-apps",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-12; screenshots in the shared folder (ACME-PoC/evidence/126)",
+          "notes": ""
+        },
+        {
+          "id": "yl7mtfg",
+          "catalogId": "rancher-rbac",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Run on 2026-11-13; screenshots in the shared folder (ACME-PoC/evidence/127)",
+          "notes": ""
+        },
+        {
+          "id": "pkmz62i",
+          "catalogId": "rancher-backup",
+          "result": "partial",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "",
+          "notes": "Works, but needs the customer's private CA imported first; follow-up scheduled."
+        },
+        {
+          "id": "z9b94wb",
+          "catalogId": "rancher-restore",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-15; screenshots in the shared folder (ACME-PoC/evidence/129)",
+          "notes": ""
+        },
+        {
+          "id": "5qsod0g",
+          "catalogId": "rancher-restart",
+          "result": "running",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "",
+          "notes": ""
+        }
+      ],
+      "security": [
+        {
+          "id": "3yjwxo1",
+          "catalogId": "sec-admission",
+          "result": "scheduled",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "bvjwub5",
+          "catalogId": "sec-runtime",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "Run on 2026-11-10; screenshots in the shared folder (ACME-PoC/evidence/132)",
+          "notes": ""
+        }
+      ],
+      "storage": [
+        {
+          "id": "7ak0a53",
+          "catalogId": "sto-rwx",
+          "result": "pending",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "7d6habf",
+          "catalogId": "sto-rebuild",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-12; screenshots in the shared folder (ACME-PoC/evidence/134)",
+          "notes": ""
+        }
+      ],
+      "observability": [
+        {
+          "id": "9wyktw2",
+          "catalogId": "obs-topology",
+          "result": "fail",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Timeout after 30 min on the stores VLAN",
+          "notes": "Suspected firewall rule between the VM network and the storage target; ticket opened with the network team."
+        },
+        {
+          "id": "n3iu117",
+          "catalogId": "obs-alert",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "Run on 2026-11-14; screenshots in the shared folder (ACME-PoC/evidence/136)",
+          "notes": ""
+        }
+      ],
+      "registry": [
+        {
+          "id": "tbm5v1y",
+          "catalogId": "reg-airgap",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-15; screenshots in the shared folder (ACME-PoC/evidence/137)",
+          "notes": ""
+        }
+      ],
+      "appcollection": [
+        {
+          "id": "gdonykb",
+          "catalogId": "app-sbom",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "Run on 2026-11-16; screenshots in the shared folder (ACME-PoC/evidence/138)",
+          "notes": ""
+        }
+      ],
+      "manager": [
+        {
+          "id": "s1kh6ye",
+          "catalogId": "mlm-wizard",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Rafael Dias",
+          "evidence": "Run on 2026-11-17; screenshots in the shared folder (ACME-PoC/evidence/139)",
+          "notes": ""
+        },
+        {
+          "id": "7l4h504",
+          "catalogId": "mlm-products",
+          "result": "partial",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Ana Souza",
+          "evidence": "",
+          "notes": "Works, but needs the customer's private CA imported first; follow-up scheduled."
+        },
+        {
+          "id": "ms9a99f",
+          "catalogId": "mlm-disk",
+          "result": "pass",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Carlos Lima",
+          "evidence": "Run on 2026-11-11; screenshots in the shared folder (ACME-PoC/evidence/141)",
+          "notes": ""
+        },
+        {
+          "id": "uvep1bj",
+          "catalogId": "mlm-minion",
+          "result": "running",
+          "priority": "must",
+          "fit": "native",
+          "led": "",
+          "owner": "Marina Costa",
+          "evidence": "",
+          "notes": ""
+        },
+        {
+          "id": "rt7rkeu",
+          "text": "",
+          "result": "pending",
+          "fit": "",
+          "led": "",
+          "owner": "",
+          "evidence": "",
+          "notes": ""
+        }
+      ]
+    },
+    "installProgress": {
+      "pf-network": true,
+      "pf-firewall": true,
+      "pf-hardware": true,
+      "pf-media": true,
+      "pf-accounts": true,
+      "pf-online-urls": true,
+      "virt-install-first": true,
+      "virt-install-join": true,
+      "virt-firstlogin": true,
+      "rancher-online": true,
+      "storage-apps": true,
+      "security-apps": true,
+      "obs-online": true,
+      "registry-online": true,
+      "appcol-config": true,
+      "manager-install": true
+    },
+    "installDates": {
+      "pf-network": "2026-11-03",
+      "pf-firewall": "2026-11-03",
+      "pf-hardware": "2026-11-04",
+      "pf-media": "2026-11-04",
+      "pf-accounts": "2026-11-05",
+      "pf-online-urls": "2026-11-05",
+      "virt-install-first": "2026-11-06",
+      "virt-install-join": "2026-11-06",
+      "virt-firstlogin": "2026-11-07",
+      "rancher-online": "2026-11-07",
+      "storage-apps": "2026-11-08",
+      "security-apps": "2026-11-08",
+      "obs-online": "2026-11-09",
+      "registry-online": "2026-11-09",
+      "appcol-config": "2026-11-10",
+      "manager-install": "2026-11-10"
+    },
+    "installNotes": {
+      "pf-firewall": "Firewall change CHG-48213 approved; ports opened on the 4th.",
+      "pf-accounts": "Node 3 needed a BIOS update before virtualization showed up."
+    },
+    "installApproach": "online",
+    "k3sVersionPin": "",
+    "rancherVersionPin": ""
+  },
+  "eib": {
+    "p1_GATEWAY": "10.20.30.1",
+    "p1_PREFIX": "24",
+    "p1_DNS1": "10.20.30.2",
+    "p1_SSH_KEY": "",
+    "p1_CLIENT_NAME": "acme-retail-sa",
+    "p1_POC_DAYS": "18",
+    "p1_SCC_REG_CODE": "DEMO-REG-CODE-0000",
+    "p1_K3S_VERSION": "",
+    "p1_NODE_HOSTNAME": "rancher-1",
+    "p1_NODE_FQDN": "rancher-1.acme.lab",
+    "p1_STATIC_IP": "10.20.30.23",
+    "p1_ROOT_PASS": "demo-not-a-real-password",
+    "p1_RANCHER_FQDN": "rancher.rancher-1.acme.lab",
+    "p1_RANCHER_BOOTSTRAP_PASS": "demo-not-a-real-password",
+    "p1_AC_USER": "demo-ac-user",
+    "p1_AC_TOKEN": "demo-not-a-real-token",
+    "p1_RANCHER_VERSION": "",
+    "p2_GATEWAY": "10.20.30.1",
+    "p2_PREFIX": "24",
+    "p2_DNS1": "10.20.30.2",
+    "p2_SSH_KEY": "",
+    "p2_CLIENT_NAME": "acme-retail-sa",
+    "p2_POC_DAYS": "18",
+    "p2_SCC_REG_CODE": "DEMO-REG-CODE-0000",
+    "p2_K3S_VERSION": "",
+    "p2_NODE_HOSTNAME": "downstream-1",
+    "p2_NODE_FQDN": "downstream-1.acme.lab",
+    "p2_STATIC_IP": "10.20.30.26",
+    "p2_ROOT_PASS": "demo-not-a-real-password",
+    "p2_SCC_USER": "demo-scc-user",
+    "p2_SCC_PASS": "demo-not-a-real-password",
+    "p3_GATEWAY": "10.20.30.1",
+    "p3_PREFIX": "24",
+    "p3_DNS1": "10.20.30.2",
+    "p3_SSH_KEY": "",
+    "p3_CLIENT_NAME": "acme-retail-sa",
+    "p3_POC_DAYS": "18",
+    "p3_SCC_REG_CODE": "DEMO-REG-CODE-0000",
+    "p3_K3S_VERSION": "",
+    "p3_NODE_HOSTNAME": "observability-1",
+    "p3_NODE_FQDN": "observability-1.acme.lab",
+    "p3_STATIC_IP": "10.20.30.24",
+    "p3_ROOT_PASS": "demo-not-a-real-password",
+    "p3_SCC_USER": "demo-scc-user",
+    "p3_SCC_PASS": "demo-not-a-real-password",
+    "p3_STACKSTATE_LICENSE": "DEMO-LICENSE-NOT-VALID",
+    "p3_STACKSTATE_ADMIN_PASS": "demo-not-a-real-password"
+  },
+  "poc_markdown": "# ACME Retail - Edge Virtualization PoC\n\n> SUSE → ACME Retail S.A. · Generated by PoC Planner v1.0.0 · 2026-11-13\n\n## Project\n\n- Lead engineer: Ana Souza (ana.souza@example.com)\n- Start: 2026-11-02 · Target date: 2026-11-20\n- Use case: VM modernisation and platform consolidation for retail stores\n- Business issue: The current hypervisor licence renews in Q1 and per-socket costs doubled; the team wants one Kubernetes-based platform for VMs and containers.\n- Target infrastructure: 3 x 2U servers (16 cores, 64 GB RAM, 2 x 250 GB SSD + 500 GB data disk, 4 x 10 GbE) in the Sao Paulo lab, top-of-rack switches with trunked ports.\n\n### Client contacts\n\n| Name | Role | E-mail | Phone |\n|---|---|---|---|\n| Carlos Lima | IT Infrastructure Manager | carlos.lima@acme.example | +55 11 5550-0101 |\n| Marina Costa | Security Architect | marina.costa@acme.example | +55 11 5550-0102 |\n| Rafael Dias | Network Engineer | rafael.dias@acme.example | +55 11 5550-0103 |\n\n## Scope\n\n- SUSE Virtualization\n- Rancher Prime\n- SUSE Security\n- SUSE Storage\n- SUSE Observability\n- SUSE Private Registry\n- SUSE Application Collection\n- SUSE Multi-Linux Manager\n\n## Network\n\n- CIDR: 10.20.30.0/24 · Gateway: 10.20.30.1 · VIP: 10.20.30.10\n- DNS: 10.20.30.2, 10.20.30.3 · NTP: 10.20.30.4, 10.20.30.5 · Domain: acme.lab\n- IP pool: 10.20.30.20 – 10.20.30.60\n- Firewall: yes · Air-gap: no · Load Balancer: yes\n- Proxy: HTTP http://proxy.acme.lab:3128 · HTTPS http://proxy.acme.lab:3128 · No proxy: localhost,127.0.0.1,0.0.0.0,10.20.30.0/24,.svc,.cluster.local,.acme.lab,10.20.30.10\n\n### VM / node inventory\n\n| Product | Role | vCPU | RAM (GB) | Disk (GB) | Hostname | IP |\n|---|---|---|---|---|---|---|\n| SUSE Virtualization | Management/HCI | 16 | 64 | 500 | virtualization-1 | 10.20.30.20 |\n| SUSE Virtualization | Management/HCI | 16 | 64 | 500 | virtualization-2 | 10.20.30.21 |\n| SUSE Virtualization | Management/HCI | 16 | 64 | 500 | virtualization-3 | 10.20.30.22 |\n| Rancher Prime | Rancher Server | 8 | 16 | 80 | rancher-1 | 10.20.30.23 |\n| SUSE Observability | Observability | 8 | 32 | 300 | observability-1 | 10.20.30.24 |\n| SUSE Multi-Linux Manager | Multi-Linux Manager Server | 4 | 32 | 230 | manager-1 | 10.20.30.25 |\n| Downstream cluster | Downstream cluster (security, storage, registry · pulls from Application Collection) | 8 | 16 | 150 | downstream-1 | 10.20.30.26 |\n\n## Air-gapped ISOs (EIB)\n\n| Profile | Contents | FQDN | IP |\n|---|---|---|---|\n| 1 | K3s + cert-manager + Rancher Prime | rancher-1.acme.lab | 10.20.30.23 |\n| 2 | K3s + Longhorn + NeuVector + Harbor | downstream-1.acme.lab | 10.20.30.26 |\n| 3 | K3s + SUSE Observability | observability-1.acme.lab | 10.20.30.24 |\n\n## Test plan\n\n| Priority | Total | Demonstrated | Pending |\n|---|---|---|---|\n| must-have | 43 | 25 | 11 |\n| nice-to-have | 0 | 0 | 0 |\n\n---\n\n_Credentials, passwords and tokens are left out of this document on purpose._\n"
+}

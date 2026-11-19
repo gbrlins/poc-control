@@ -7,6 +7,7 @@ from sqlalchemy import func
 from app.categorias import normalizar as normalizar_categoria
 from app.db import SessionLocal
 from app.gemini import extrair_itens_rfi, interpretar_erro_gemini, modelo_efetivo
+from app.idioma import marcar, norm_idioma
 from app.models import OrigemClassificacao, Rfi, RfiDocumento, RfiItem, StatusExtracao, VeredictoRfi
 from app.rfi.documentos import carregar_documento
 from app.rfi.service import avaliar_item_rfi
@@ -21,14 +22,7 @@ _JUSTIFICATIVA_INTERROMPIDO = {
 
 
 def _justificativa_interrompido(lang: str | None = None) -> str:
-    return _JUSTIFICATIVA_INTERROMPIDO.get(lang or "pt", _JUSTIFICATIVA_INTERROMPIDO["pt"])
-
-
-_TITULO_PADRAO_RFI = {"pt": "RFI sem título", "en": "Untitled RFI", "es": "RFI sin título"}
-
-
-def _titulo_padrao_rfi(lang: str | None = None) -> str:
-    return _TITULO_PADRAO_RFI.get(lang or "pt", _TITULO_PADRAO_RFI["pt"])
+    return _JUSTIFICATIVA_INTERROMPIDO[norm_idioma(lang)]
 
 
 def iniciar_processamento(rfi: Rfi) -> None:
@@ -78,14 +72,11 @@ def _marcar_interrompidos(db, ids: list[uuid.UUID], lang: str | None = None) -> 
     para sempre. Viram "sem evidência" com uma justificativa que explica e manda reavaliar."""
     if not ids:
         return
-    db.query(RfiItem).filter(RfiItem.id.in_(ids), RfiItem.veredito.is_(None)).update(
-        {
-            RfiItem.veredito: VeredictoRfi.sem_evidencia,
-            RfiItem.justificativa: _justificativa_interrompido(lang),
-            RfiItem.origem: None,
-        },
-        synchronize_session=False,
-    )
+    for item in db.query(RfiItem).filter(RfiItem.id.in_(ids), RfiItem.veredito.is_(None)).all():
+        item.veredito = VeredictoRfi.sem_evidencia
+        item.justificativa = _justificativa_interrompido(lang)
+        item.origem = None
+        marcar(item, lang, "justificativa")
     db.commit()
 
 
@@ -154,9 +145,9 @@ def processar_rfi(
                     codigo=item.codigo,
                     categoria=item.categoria or None,
                     categoria_codigo=normalizar_categoria(item.categoria_codigo),
+                    idiomas={"categoria": norm_idioma(lang)} if item.categoria else None,
                     descricao=item.descricao,
                     ordem=proxima_ordem,
-                    idioma_original=lang or "pt",
                 )
                 proxima_ordem += 1
                 db.add(novo)
@@ -169,7 +160,7 @@ def processar_rfi(
         if rfi is None:
             return
         if not rfi.titulo:
-            rfi.titulo = _titulo_padrao_rfi(lang)
+            rfi.titulo = "Untitled RFI"
         # Só vira `erro` se NENHUM documento deu certo; se algum falhou e outro não, o RFI fica
         # `pronto` com a mensagem em erro_extracao (o front mostra como aviso).
         rfi.erro_extracao = "\n".join(erros) or None

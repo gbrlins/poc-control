@@ -25,7 +25,7 @@ def texto_de_docx(conteudo: bytes) -> str:
     try:
         doc = Document(io.BytesIO(conteudo))
     except Exception as exc:
-        raise ValueError(f"Não foi possível ler o arquivo Word: {exc}") from exc
+        raise ValueError(f"Could not read the Word file: {exc}") from exc
 
     linhas: list[str] = []
     for item in _iter_block_items(doc):
@@ -42,5 +42,5 @@ def texto_de_docx(conteudo: bytes) -> str:
                 linhas.append(texto)
 
     if not linhas:
-        raise ValueError("O documento Word está vazio")
+        raise ValueError("The Word document is empty")
     return "\n".join(linhas)

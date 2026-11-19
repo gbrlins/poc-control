@@ -144,6 +144,22 @@ Migrations and the admin-user seed run automatically on the `api` container's st
 else to run by hand. Open `http://<host>:8090` and log in with `ADMIN_EMAIL` and the plaintext
 password you hashed in step 3.
 
+## 5. Load the sample procedures (optional)
+
+A new install has no procedures. Three validated ones ship in `seed/procedimentos/` (Argo CD to k3s, HPA with
+Ingress, Vault integration). They are **not** loaded automatically: log in once, save your Gemini key under
+*My account*, then run
+
+```sh
+docker compose exec api python scripts/import_seed.py --user you@example.com
+```
+
+`--user` is your login's e-mail: you become the owner of the procedures and the Gemini key from *My account* is
+the one used for the embeddings and the English translation. Without `--user` the script uses `GEMINI_API_KEY`
+from the environment and the procedures have no owner. It goes through the same code as a web upload, skips
+procedures that already exist, and is safe to run again. The samples are written in Portuguese; they are
+translated on demand to the language of the screen.
+
 ## Updating
 
 ```sh

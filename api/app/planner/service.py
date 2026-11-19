@@ -109,13 +109,13 @@ def validar_catalogo(bruto: str) -> dict:
     try:
         cat = json.loads(bruto)
     except (TypeError, ValueError):
-        raise ValueError("catálogo inválido")
+        raise ValueError("invalid catalog")
     if not isinstance(cat, dict) or not isinstance(cat.get("tests"), list) or len(cat["tests"]) > LIMITE_TESTES_CATALOGO:
-        raise ValueError("catálogo inválido")
+        raise ValueError("invalid catalog")
     testes = {}
     for t in cat["tests"]:
         if not isinstance(t, dict) or not all(isinstance(t.get(k), str) for k in ("id", "product", "title")):
-            raise ValueError("catálogo inválido")
+            raise ValueError("invalid catalog")
         testes[t["id"][:80]] = {"product": t["product"][:40], "title": t["title"][:200]}
     return {"tests": testes}
 
@@ -194,7 +194,7 @@ def extrair_hidratacao(
     elif texto:
         conteudo = [texto]
     else:
-        raise ValueError("Informe pdf_bytes ou texto")
+        raise ValueError("Provide pdf_bytes or text")
     linhas = "\n".join(f"{i} | {t['product']} | {t['title']}" for i, t in catalogo["tests"].items())
     conteudo.append(_HIDRATACAO_PROMPT.format(catalogo=linhas))
     response = _gerar_com_retry(
@@ -235,8 +235,7 @@ def gerar_rascunho_planner(
     quando o plano for "habilitado" como execução, ver execution_payload no poc-control). Cria como
     status=rascunho (invisível pra _buscar_candidatos até o usuário validar) e
     origem=OrigemConhecimento.planejador, pra distinguir de um rascunho nascido de um Item de PoC
-    de verdade. `lang`: idioma da tela do planejador no momento do clique (branch v2) -- deixou de
-    ser forçado em português."""
+    de verdade."""
     item_texto = f"{titulo}\nResultado esperado: {esperado}" if esperado else titulo
     contexto = _contexto_planner(produto, cliente, escopo)
     pesquisa_texto, fontes = pesquisar_implementacao_item(item_texto, contexto, api_key=api_key, model=model, lang=lang)

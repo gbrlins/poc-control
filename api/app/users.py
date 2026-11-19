@@ -53,7 +53,7 @@ def listar_usuarios(db: Session = Depends(get_db)):
 def criar_usuario(payload: UsuarioCreate, db: Session = Depends(get_db)):
     existente = db.query(User).filter(User.email == payload.email).first()
     if existente is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Já existe um usuário com esse e-mail")
+        raise HTTPException(status.HTTP_409_CONFLICT, "A user with this email already exists")
 
     usuario = User(
         email=payload.email,
@@ -79,14 +79,14 @@ def atualizar_admin(
     administrador restante -- as duas formas de ninguém mais conseguir gerenciar usuários."""
     usuario = db.get(User, usuario_id)
     if usuario is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
 
     if usuario.is_admin and not payload.is_admin:
         if usuario.id == current_user.id:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Você não pode remover o seu próprio acesso de administrador")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot remove your own administrator access")
         outros_admins = db.query(User).filter(User.is_admin.is_(True), User.id != usuario.id).count()
         if outros_admins == 0:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Não é possível remover o último administrador")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "The last administrator cannot be removed")
 
     usuario.is_admin = payload.is_admin
     db.commit()

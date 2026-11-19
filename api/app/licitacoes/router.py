@@ -56,10 +56,10 @@ def listar_termos(db: Session = Depends(get_db)):
 def criar_termo(payload: TermoBuscaIn, db: Session = Depends(get_db)):
     termo = payload.termo.strip()
     if not termo:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Termo não pode ser vazio")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The term cannot be empty")
     existente = db.query(TermoBuscaLicitacao).filter(TermoBuscaLicitacao.termo == termo).one_or_none()
     if existente is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Já existe um termo de busca igual a esse")
+        raise HTTPException(status.HTTP_409_CONFLICT, "A search term like this already exists")
 
     novo = TermoBuscaLicitacao(termo=termo, categoria_codigo=payload.categoria_codigo)
     db.add(novo)
@@ -74,7 +74,7 @@ def alternar_termo(termo_id: uuid.UUID, db: Session = Depends(get_db)):
     foi criado."""
     termo = db.get(TermoBuscaLicitacao, termo_id)
     if termo is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Termo não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Term not found")
     termo.ativo = not termo.ativo
     db.commit()
     db.refresh(termo)
@@ -85,7 +85,7 @@ def alternar_termo(termo_id: uuid.UUID, db: Session = Depends(get_db)):
 def remover_termo(termo_id: uuid.UUID, db: Session = Depends(get_db)):
     termo = db.get(TermoBuscaLicitacao, termo_id)
     if termo is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Termo não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Term not found")
     db.delete(termo)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

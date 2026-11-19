@@ -1,24 +1,29 @@
+import pathlib
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import exclusao as excl
 from app.classificacao.service import atualizar_embedding_historico_rfi
+from app.config import settings
 from app.db import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, ui_lang
 from app.gemini import interpretar_erro_gemini
 from app.gemini_key import resolve_api_key, resolve_model
 from app.models import OrigemClassificacao, Rfi, RfiDocumento, RfiItem, StatusExtracao, User
 from app.rfi.documentos import TEXTO_COLADO_NOME, ler_conteudo, remover_arquivo, salvar_documento
 from app.rfi.export import montar_rfi_export_html, montar_rfi_export_xlsx
 from app.rfi.schemas import ContagemVeredito, RfiDetail, RfiDocumentoOut, RfiItemManualUpdate, RfiItemOut, RfiListItem
+from app.idioma import marcar
+from app.relatorio_visao import rfi_para_relatorio
 from app.rfi.service import avaliar_item_rfi
+from app.rfi.traducao import textos_rfi_no_idioma
+from app.url_real import resolver_urls
 from app.rfi.tasks import iniciar_processamento, processar_rfi, reavaliar_rfi
-from app.traducao import campos_no_idioma
 
 router = APIRouter(prefix="/api/rfis", tags=["rfis"], dependencies=[Depends(get_current_user)])
 
@@ -69,14 +74,14 @@ def _list_item(db: Session, rfi: Rfi) -> RfiListItem:
 def _get_rfi_or_404(db: Session, rfi_id: uuid.UUID) -> Rfi:
     rfi = db.get(Rfi, rfi_id)
     if rfi is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "RFI não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "RFI not found")
     return rfi
 
 
 def _get_item_or_404(db: Session, rfi_id: uuid.UUID, item_id: uuid.UUID) -> RfiItem:
     item = db.get(RfiItem, item_id)
     if item is None or item.rfi_id != rfi_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
     return item
 
 
@@ -108,7 +113,7 @@ def _ler_uploads(arquivos: list[UploadFile] | None, texto: str | None) -> list[t
 
 def _exigir_ocioso(rfi: Rfi) -> None:
     if rfi.status_extracao == StatusExtracao.extraindo:
-        raise HTTPException(status.HTTP_409_CONFLICT, "O RFI ainda está sendo processado; aguarde terminar")
+        raise HTTPException(status.HTTP_409_CONFLICT, "The RFI is still being processed; wait for it to finish")
 
 
 def _documento_out(db: Session, doc: RfiDocumento) -> RfiDocumentoOut:
@@ -131,15 +136,15 @@ def criar_rfi(
     orgao: str = Form(""),
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
-    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     # Título/órgão são opcionais aqui (diferente de criar_poc): a extração já tenta sugeri-los
     # a partir do próprio documento (ver app/rfi/tasks.py::processar_rfi).
     docs = _ler_uploads(arquivos, texto)
     if not docs:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie o(s) documento(s) do edital/TR, ou cole o texto")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Upload the tender/TR document(s), or paste the text")
 
     rfi = Rfi(
         titulo=titulo,
@@ -157,52 +162,38 @@ def criar_rfi(
     db.refresh(rfi)
 
     background_tasks.add_task(
-        processar_rfi,
-        rfi.id,
-        [d.id for d in criados],
-        resolve_api_key(current_user),
-        resolve_model(current_user),
-        lang=lang,
+        processar_rfi, rfi.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user), lang=lang
     )
     return _list_item(db, rfi)
 
 
-def _traduzir_rfi_item_out(db: Session, item: RfiItem, item_out: RfiItemOut, lang: str, api_key: str | None) -> None:
-    """Mesma lógica de app/pocs/router.py::_traduzir_item_out, pra RfiItem -- NUNCA inclui
-    `descricao` (cópia literal do edital, por design não é traduzida, ver RfiItem.idioma_original
-    em app/models.py)."""
-    campos = {
-        chave: valor
-        for chave, valor in {"categoria": item_out.categoria, "justificativa": item_out.justificativa}.items()
-        if valor
-    }
-    if not campos:
-        return
-    traduzidos = campos_no_idioma(db, item, lang, campos, api_key=api_key)
-    item_out.categoria = traduzidos.get("categoria", item_out.categoria)
-    item_out.justificativa = traduzidos.get("justificativa", item_out.justificativa)
+def _itens_out(db: Session, itens: list[RfiItem], lang: str, user: User) -> list[RfiItemOut]:
+    """Itens prontos para a tela. Fora do pt, a justificativa escrita pela IA e a categoria vêm traduzidas (com cache), ver app/rfi/traducao.py.
+    A descrição do requisito é sempre a do edital, no idioma original."""
+    traduzidas = textos_rfi_no_idioma(db, itens, lang, resolve_api_key(user), resolve_model(user))
+    out = []
+    for i in itens:
+        item = RfiItemOut.model_validate(i)
+        if i.id in traduzidas:
+            item = item.model_copy(update=traduzidas[i.id])
+        out.append(item)
+    return out
 
 
 @router.get("/{rfi_id}", response_model=RfiDetail)
 def obter_rfi(
     rfi_id: uuid.UUID,
-    lang: str = "pt",
+    lang: str = Depends(ui_lang),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     rfi = _get_rfi_or_404(db, rfi_id)
-    if lang not in ("pt", "en", "es"):
-        lang = "pt"
-    api_key = resolve_api_key(current_user)
-    itens_out = [RfiItemOut.model_validate(i) for i in rfi.itens]
-    for item, item_out in zip(rfi.itens, itens_out):
-        _traduzir_rfi_item_out(db, item, item_out, lang, api_key)
     return RfiDetail(
         **_list_item(db, rfi).model_dump(),
         erro_extracao=rfi.erro_extracao,
         modelo_extracao=rfi.modelo_extracao,
         documentos=[_documento_out(db, d) for d in rfi.documentos],
-        itens=itens_out,
+        itens=_itens_out(db, list(rfi.itens), lang, current_user),
     )
 
 
@@ -212,9 +203,9 @@ def adicionar_documentos(
     background_tasks: BackgroundTasks,
     arquivos: list[UploadFile] | None = File(None),
     texto: str | None = Form(None),
-    lang: str = Form("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Anexa documentos a um RFI existente: extrai e avalia só os itens NOVOS (os existentes, e
     qualquer veredito manual, ficam como estão)."""
@@ -222,17 +213,12 @@ def adicionar_documentos(
     _exigir_ocioso(rfi)
     docs = _ler_uploads(arquivos, texto)
     if not docs:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie ao menos um documento, ou cole o texto")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Upload at least one document, or paste the text")
     criados = [salvar_documento(db, rfi, nome, conteudo) for nome, conteudo in docs]
     iniciar_processamento(rfi)
     db.commit()
     background_tasks.add_task(
-        processar_rfi,
-        rfi.id,
-        [d.id for d in criados],
-        resolve_api_key(current_user),
-        resolve_model(current_user),
-        lang=lang,
+        processar_rfi, rfi.id, [d.id for d in criados], resolve_api_key(current_user), resolve_model(current_user), lang=lang
     )
     return _list_item(db, rfi)
 
@@ -241,9 +227,9 @@ def adicionar_documentos(
 def reextrair_rfi(
     rfi_id: uuid.UUID,
     background_tasks: BackgroundTasks,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Tenta de novo a extração de um RFI cujo status_extracao ficou 'erro' (ex.: todos os
     documentos falharam no Gemini, ou a recuperação de reinício marcou como erro -- ADR 7,
@@ -253,26 +239,21 @@ def reextrair_rfi(
     duplicaria os itens dele."""
     rfi = _get_rfi_or_404(db, rfi_id)
     if rfi.status_extracao != StatusExtracao.erro:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Só é possível reprocessar um RFI cuja extração falhou")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only an RFI whose extraction failed can be reprocessed")
     if not rfi.documentos:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Este RFI não tem documento original para reprocessar")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This RFI has no original document to reprocess")
 
     pendentes = [d for d in rfi.documentos if not any(i.documento_id == d.id for i in rfi.itens)]
     if not pendentes:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            'Todos os documentos deste RFI já têm itens extraídos -- use "Reavaliar" nos itens pendentes',
+            'All documents in this RFI already have extracted items -- use "Re-evaluate" on the pending items',
         )
 
     iniciar_processamento(rfi)
     db.commit()
     background_tasks.add_task(
-        processar_rfi,
-        rfi.id,
-        [d.id for d in pendentes],
-        resolve_api_key(current_user),
-        resolve_model(current_user),
-        lang=lang,
+        processar_rfi, rfi.id, [d.id for d in pendentes], resolve_api_key(current_user), resolve_model(current_user), lang=lang
     )
     return _list_item(db, rfi)
 
@@ -285,7 +266,7 @@ def remover_documento(rfi_id: uuid.UUID, documento_id: uuid.UUID, db: Session = 
     _exigir_ocioso(rfi)
     doc = db.get(RfiDocumento, documento_id)
     if doc is None or doc.rfi_id != rfi_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Documento não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
     # Remove os itens explicitamente (não só pelo ON DELETE CASCADE do banco): o ORM não tem
     # relationship Documento->Itens, então só assim a sessão fica consistente.
     db.query(RfiItem).filter(RfiItem.documento_id == doc.id).delete(synchronize_session=False)
@@ -295,13 +276,28 @@ def remover_documento(rfi_id: uuid.UUID, documento_id: uuid.UUID, db: Session = 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/{rfi_id}/documentos/{documento_id}/download")
+def baixar_documento(rfi_id: uuid.UUID, documento_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Devolve o arquivo original enviado (PDF, Word, planilha ou o texto colado)."""
+    _get_rfi_or_404(db, rfi_id)
+    doc = db.get(RfiDocumento, documento_id)
+    if doc is None or doc.rfi_id != rfi_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    # O caminho veio do banco: só serve se continuar dentro da pasta deste RFI.
+    pasta = (pathlib.Path(settings.uploads_dir) / "rfis" / str(rfi_id)).resolve()
+    arquivo = pathlib.Path(doc.caminho_arquivo).resolve()
+    if not arquivo.is_relative_to(pasta) or not arquivo.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "The document file was not found on disk")
+    return FileResponse(arquivo, filename=doc.nome_arquivo)
+
+
 @router.post("/{rfi_id}/cancelar", response_model=RfiListItem, status_code=status.HTTP_202_ACCEPTED)
 def cancelar_processamento(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
     """Pede a interrupção do processamento em andamento. A tarefa em background confere o pedido
     entre um passo e outro (documento, item) e para; uma chamada já em curso ao Gemini termina antes."""
     rfi = _get_rfi_or_404(db, rfi_id)
     if rfi.status_extracao != StatusExtracao.extraindo:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Não há processamento em andamento neste RFI")
+        raise HTTPException(status.HTTP_409_CONFLICT, "No processing is running for this RFI")
     rfi.cancelamento_solicitado = True
     db.commit()
     return _list_item(db, rfi)
@@ -313,9 +309,9 @@ def reavaliar_todos(
     background_tasks: BackgroundTasks,
     incluir_manuais: bool = False,
     somente_pendentes: bool = False,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     """Reavalia todos os itens em background; por padrão preserva os vereditos sobrescritos à mão."""
     rfi = _get_rfi_or_404(db, rfi_id)
@@ -329,7 +325,7 @@ def reavaliar_todos(
         resolve_api_key(current_user),
         resolve_model(current_user),
         somente_pendentes,
-        lang=lang,
+        lang,
     )
     return _list_item(db, rfi)
 
@@ -341,10 +337,12 @@ def sobrescrever_veredito(
     payload: RfiItemManualUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     item = _get_item_or_404(db, rfi_id, item_id)
     item.veredito = payload.veredito
     item.justificativa = payload.justificativa
+    marcar(item, lang, "justificativa")  # texto de uma pessoa, no idioma da tela dela
     item.origem = OrigemClassificacao.manual
     item.confirmado_por_historico = False
     item.modelo = None
@@ -363,9 +361,9 @@ def sobrescrever_veredito(
 def reavaliar_item(
     rfi_id: uuid.UUID,
     item_id: uuid.UUID,
-    lang: str = Query("pt"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    lang: str = Depends(ui_lang),
 ):
     item = _get_item_or_404(db, rfi_id, item_id)
     tinha_veredito = item.veredito is not None
@@ -380,19 +378,50 @@ def reavaliar_item(
         # Item que nunca tinha sido avaliado: avaliar_item_rfi já persistiu um veredito "sem
         # evidência" com o erro na justificativa -- devolve normalmente pra UI mostrar.
     db.refresh(item)
-    return item
+    return _itens_out(db, [item], lang, current_user)[0]
+
+
+@router.post("/{rfi_id}/fontes/resolver")
+def resolver_fontes(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Troca, nos itens já avaliados, os links de redirecionamento do grounding do Google pelo endereço real da página (as avaliações
+    novas já gravam o endereço real, ver app/url_real.py). Idempotente: o que já está resolvido não muda."""
+    rfi = _get_rfi_or_404(db, rfi_id)
+    brutas = sorted({f.get("url", "") for i in rfi.itens for f in (i.fontes or []) if "vertexaisearch.cloud.google.com" in f.get("url", "")})
+    if not brutas:
+        return {"atualizados": 0}
+    reais = dict(zip(brutas, resolver_urls(brutas)))
+    atualizados = 0
+    for item in rfi.itens:
+        novas = [{**f, "url": reais.get(f.get("url", ""), f.get("url", ""))} for f in (item.fontes or [])]
+        if novas != (item.fontes or []):
+            item.fontes = novas
+            atualizados += 1
+    db.commit()
+    return {"atualizados": atualizados}
 
 
 @router.get("/{rfi_id}/export", response_class=HTMLResponse)
-def exportar_rfi(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
+def exportar_rfi(
+    rfi_id: uuid.UUID,
+    lang: str = Depends(ui_lang),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     rfi = _get_rfi_or_404(db, rfi_id)
-    return HTMLResponse(montar_rfi_export_html(rfi))
+    visao = rfi_para_relatorio(db, rfi, lang, resolve_api_key(current_user), resolve_model(current_user))
+    return HTMLResponse(montar_rfi_export_html(visao, lang))
 
 
 @router.get("/{rfi_id}/export.xlsx")
-def exportar_rfi_xlsx(rfi_id: uuid.UUID, db: Session = Depends(get_db)):
+def exportar_rfi_xlsx(
+    rfi_id: uuid.UUID,
+    lang: str = Depends(ui_lang),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     rfi = _get_rfi_or_404(db, rfi_id)
-    conteudo = montar_rfi_export_xlsx(rfi)
+    visao = rfi_para_relatorio(db, rfi, lang, resolve_api_key(current_user), resolve_model(current_user))
+    conteudo = montar_rfi_export_xlsx(visao, lang)
     nome = f"rfi-{rfi.titulo or rfi.id}.xlsx".replace("/", "-")
     return Response(
         content=conteudo,
@@ -420,9 +449,9 @@ def definir_responsavel(
     rfi = _get_rfi_or_404(db, rfi_id)
     novo = db.get(User, payload.responsavel_id)
     if novo is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuário não encontrado")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     if not excl.pode_atribuir(current_user, rfi, novo.id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Só o dono (ou um administrador) altera o responsável; uma RFI sem dono pode ser assumida.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the owner (or an administrator) changes the owner; an RFI without an owner can be claimed.")
     rfi.responsavel_id = novo.id
     db.commit()
     return {"id": rfi.id, "responsavel_id": rfi.responsavel_id}

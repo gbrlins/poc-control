@@ -11,6 +11,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.gemini import interpretar_erro_gemini
 from app.gemini_key import resolve_api_key, resolve_model
+from app.relatorio_i18n import norm_lang
 from app.models import User
 from app.planner.service import (
     extrair_hidratacao,
@@ -58,9 +59,9 @@ def hydrate(
     if arquivo is not None and arquivo.filename:
         conteudo = arquivo.file.read(_LIMITE_ARQUIVO + 1)
         if not conteudo:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Arquivo vazio")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Empty file")
         if len(conteudo) > _LIMITE_ARQUIVO:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Arquivo maior que 25 MB")
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File larger than 25 MB")
         extensao = pathlib.Path(arquivo.filename).suffix.lower()
         if extensao == ".pdf":
             pdf_bytes = conteudo
@@ -75,11 +76,11 @@ def hydrate(
             except UnicodeDecodeError:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,
-                    "Não foi possível ler o arquivo como texto; envie PDF, XLSX/CSV ou texto/JSON em UTF-8",
+                    "Could not read the file as text; send a PDF, XLSX/CSV or UTF-8 text/JSON",
                 )
     texto_final = (texto or "").strip() or texto_arquivo
     if not pdf_bytes and not texto_final:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Envie um arquivo ou cole o texto")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Upload a file or paste the text")
 
     try:
         return extrair_hidratacao(
@@ -107,7 +108,7 @@ def history(
     mostra e a pessoa confirma."""
     lista = list(dict.fromkeys(i.strip() for i in ids.split(",") if i.strip()))
     if not lista or len(lista) > 200 or any(len(i) > 80 for i in lista):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Informe de 1 a 200 ids de teste")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Provide 1 to 200 test ids")
     return {"kind": "suse-poc-history", "schema": 1, "results": historico_por_catalogo(db, lista)}
 
 
@@ -115,7 +116,8 @@ class ProcedureDraftIn(BaseModel):
     test: TesteAderencia
     client: str = Field(default="", max_length=200)
     scope: str = Field(default="", max_length=2000)
-    lang: str = "pt"
+    # Idioma da tela do planejador no momento do clique (pt|en|es): o rascunho sai nele. Ausente ou desconhecido vira o idioma padrão (inglês).
+    lang: str = "en"
 
 
 class ProcedureDraftOut(BaseModel):
@@ -131,10 +133,10 @@ class ProcedureDraftOut(BaseModel):
     versao: int
     data_origem: date | None
     html_original: str
-    # Idioma detectado do html_original -- branch v2: a geração sai no idioma da tela no momento do
-    # clique (`payload.lang`, ver _RASCUNHO_PROMPT em app/gemini.py), não mais sempre em português.
-    # O planejador usa isso (serverProcToLib, campo langOriginal) pra saber quando precisa buscar
-    # uma tradução ao mudar o idioma da tela em vez de assumir que html_original já está certo.
+    # Idioma detectado do html_original: o rascunho sai no idioma da tela no momento do clique
+    # (`ProcedureDraftIn.lang`, ver _RASCUNHO_PROMPT em app/gemini.py). O planejador usa isso
+    # (serverProcToLib, campo langOriginal) pra saber quando precisa buscar uma tradução ao mudar o
+    # idioma da tela em vez de assumir que html_original já está no idioma certo.
     idioma_original: str | None
 
 
@@ -164,7 +166,7 @@ def procedure_draft(
             current_user.id,
             resolve_api_key(current_user),
             resolve_model(current_user),
-            payload.lang,
+            norm_lang(payload.lang),
         )
     except Exception as exc:  # noqa: BLE001 - qualquer erro da chamada ao Gemini vira 502 com mensagem acionável
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, interpretar_erro_gemini(exc))

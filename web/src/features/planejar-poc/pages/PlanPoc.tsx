@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/i18n";
 
 const THEME_EVENT = "poc-control:theme-changed";
@@ -11,12 +12,15 @@ const THEME_EVENT = "poc-control:theme-changed";
 // lets the planner's optional connector work (`GET /api/planner/capabilities` — see
 // `api/app/planner/`) and keeps the session cookie usable for it.
 //
-// Always lands on the planner's own dashboard (Novo Projeto / Importar Projeto / Importar
-// documento do cliente / Biblioteca de procedimentos) -- there used to be a `?start=new|import`
-// param to skip straight past it, but that just duplicated Home's own entry points one layer
-// deeper and buried the dashboard's other options (Importar Projeto, the procedure library)
-// behind a jump nobody asked for. Removed from both sides (see
-// poc-planner/index.html's history for applyUrlStart).
+// Home (the hub) is now the only entry point: it owns "Novo projeto", "Importar projeto",
+// "Importar documento do cliente", the procedure library and the project list. The planner's own
+// dashboard is no longer shown when embedded. Home tells the planner where to land through
+// one-time query params that this page forwards to the iframe on its FIRST load only (the planner
+// strips them from its own URL after applying them): ?open=<local project id>, ?new=1,
+// ?import=project|doc, ?view=library. Forwarding them on later loads (a language change rebuilds
+// the iframe src) would e.g. create a second "new" project, hence the `consumed` ref. With no
+// params it resumes the project that was open. The planner asks to go back to Home through a
+// `poc-control:navigate` postMessage (it has no router).
 //
 // Language: the planner reads a one-time `?lang=` query param (its own i18n takes over
 // after that), so the iframe `src` is rebuilt whenever the shell's language changes.
@@ -27,6 +31,29 @@ const THEME_EVENT = "poc-control:theme-changed";
 export function PlanPoc() {
   const { lang } = useLanguage();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const [acao] = useState(() => {
+    const q = new URLSearchParams();
+    for (const k of ["open", "new", "import", "view", "readonly", "enable"]) {
+      const v = params.get(k);
+      if (v) q.set(k, v);
+    }
+    const texto = q.toString();
+    return texto ? `&${texto}` : "";
+  });
+  const consumida = useRef(false);
+
+  useEffect(() => {
+    const aoReceber = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.source !== iframeRef.current?.contentWindow) return;
+      if (e.data?.type === "poc-control:navigate" && typeof e.data.to === "string" && e.data.to.startsWith("/")) {
+        navigate(e.data.to);
+      }
+    };
+    window.addEventListener("message", aoReceber);
+    return () => window.removeEventListener("message", aoReceber);
+  }, [navigate]);
 
   useEffect(() => {
     const reloadForTheme = () => iframeRef.current?.contentWindow?.location.reload();
@@ -43,7 +70,10 @@ export function PlanPoc() {
       <iframe
         ref={iframeRef}
         title="SUSE PoC Planner"
-        src={`/planner/?lang=${lang}`}
+        src={`/planner/?lang=${lang}${consumida.current ? "" : acao}`}
+        onLoad={() => {
+          consumida.current = true;
+        }}
         style={{ width: "100%", height: "100%", border: "none" }}
       />
     </div>

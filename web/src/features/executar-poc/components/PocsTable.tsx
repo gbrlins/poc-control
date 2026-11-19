@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { PocListItem } from "@/api";
 import { useLanguage } from "@/i18n";
+import { traduzirMensagemServidor } from "@/mensagensServidor";
 import { rotuloCategoria } from "@/categorias";
 
 function pct(poc: PocListItem) {
@@ -43,7 +44,7 @@ export function PocsTable({ itens }: { itens: PocListItem[] }) {
             {itens.map((p) => (
               <tr key={p.id}>
                 <td>
-                  <Link to={`/pocs/${p.id}`}>{p.titulo}</Link>
+                  <Link to={`/pocs/${p.id}`}>{traduzirMensagemServidor(p.titulo, lang)}</Link>
                 </td>
                 <td>{p.cliente}</td>
                 <td className="muted">

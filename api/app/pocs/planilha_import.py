@@ -35,7 +35,7 @@ def _texto_de_xlsx(conteudo: bytes) -> str:
     try:
         wb = openpyxl.load_workbook(io.BytesIO(conteudo), data_only=True)
     except Exception as exc:
-        raise ValueError(f"Não foi possível ler a planilha XLSX: {exc}") from exc
+        raise ValueError(f"Could not read the XLSX spreadsheet: {exc}") from exc
 
     partes: list[str] = []
     varias_planilhas = len(wb.worksheets) > 1
@@ -58,7 +58,7 @@ def _texto_de_xlsx(conteudo: bytes) -> str:
             partes.append(cabecalho + "\n".join(linhas_texto))
 
     if not partes:
-        raise ValueError("A planilha está vazia")
+        raise ValueError("The spreadsheet is empty")
     return "\n\n".join(partes)
 
 
@@ -72,4 +72,4 @@ def texto_de_planilha(conteudo: bytes, extensao: str) -> str:
         return _texto_de_csv(conteudo)
     if extensao == ".xlsx":
         return _texto_de_xlsx(conteudo)
-    raise ValueError(f"Extensão não suportada: {extensao}")
+    raise ValueError(f"Unsupported extension: {extensao}")

@@ -5,7 +5,12 @@ import { rotuloCategoria } from "@/categorias";
 import { BatchDocumentUploader } from "@/components/BatchDocumentUploader";
 import { DangerZone } from "@/components/DangerZone";
 import { ProcessamentoEmLote } from "@/components/ProcessamentoEmLote";
+import { ProgressoEnvio } from "@/components/ProgressoEnvio";
+import { FontesItemTable } from "@/features/rfi/components/FontesItemTable";
+import { FontesRfiTable } from "@/features/rfi/components/FontesRfiTable";
 import { useLanguage } from "@/i18n";
+import { useAvisoAoSair, useRascunhoState } from "@/rascunhoUpload";
+import { traduzirMensagemServidor } from "@/mensagensServidor";
 import { formatElapsed, useElapsedSeconds } from "@/useElapsedSeconds";
 
 const VEREDITO_BADGE: Record<VeredictoRfi, string> = {
@@ -116,12 +121,41 @@ export function RfiDetail() {
   const vistosRef = useRef<Map<string, { veredito: VeredictoRfi | null; etapa: string | null }>>(new Map());
   const primeiraCargaRef = useRef(true);
 
+  // Evaluations made before the real URLs were stored still hold Google's grounding redirect links: resolve them once
+  // (server side, idempotent) and reload, so the source tables show real addresses.
+  const fontesResolvidasRef = useRef(false);
+  function resolverFontesAntigas(data: RfiDetailData) {
+    if (fontesResolvidasRef.current) return;
+    if (!data.itens.some((i) => i.fontes.some((f) => f.url.includes("vertexaisearch.cloud.google.com")))) return;
+    fontesResolvidasRef.current = true;
+    void api
+      .resolverFontesRfi(data.id)
+      .then((r) => (r.atualizados > 0 ? carregar() : undefined))
+      .catch(() => undefined);
+  }
+
+  // The first request in a non-pt language may wait on Gemini translating the justifications (cached afterwards). So the page
+  // paints right away from a plain (original-language) request, and the translated one replaces it when it arrives.
+  const traduzidoRef = useRef(false);
+
   function carregar() {
     if (!id) return;
+    let aplicado = false;
+    if (!traduzidoRef.current) {
+      api
+        .obterRfi(id, "orig")
+        .then((rapido) => {
+          if (!aplicado) setRfi(rapido);
+        })
+        .catch(() => undefined);
+    }
     api
       .obterRfi(id, lang)
       .then((data) => {
+        aplicado = true;
+        traduzidoRef.current = true;
         setRfi(data);
+        resolverFontesAntigas(data);
         const novasEntradas = diffParaFeed(data.itens, vistosRef.current, primeiraCargaRef.current, t);
         primeiraCargaRef.current = false;
         if (novasEntradas.length > 0) {
@@ -137,6 +171,7 @@ export function RfiDetail() {
 
   useEffect(() => {
     vistosRef.current = new Map();
+    traduzidoRef.current = false;
     primeiraCargaRef.current = true;
     setFeed([]);
     carregar();
@@ -144,14 +179,7 @@ export function RfiDetail() {
       if (pollRef.current) window.clearTimeout(pollRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  // Língua trocada: busca de novo pra pegar os campos traduzidos, sem tratar como "primeira
-  // carga" (isso zeraria o feed de mudanças recentes só por ter trocado o idioma da tela).
-  useEffect(() => {
-    if (!primeiraCargaRef.current) carregar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
+  }, [id, lang]);
 
   function atualizarItem(atualizado: RfiItemOut) {
     setRfi((prev) =>
@@ -162,7 +190,7 @@ export function RfiDetail() {
   async function tentarNovamente() {
     setReextraindo(true);
     try {
-      await api.reextrairRfi(rfi!.id, lang);
+      await api.reextrairRfi(rfi!.id);
       carregar();
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : t("rfiDetail.erroReextrair"));
@@ -201,7 +229,7 @@ export function RfiDetail() {
       <div className="poc-header">
         <div className="poc-header-top">
           <div>
-            <h1>{rfi.titulo || t("rfis.semTitulo")}</h1>
+            <h1>{traduzirMensagemServidor(rfi.titulo, lang) || t("rfis.semTitulo")}</h1>
             <div className="poc-sub">
               {rfi.orgao}
               {rfi.numero_processo ? ` · ${t("rfiDetail.processo")} ${rfi.numero_processo}` : ""}
@@ -231,7 +259,7 @@ export function RfiDetail() {
 
       {rfi.status_extracao === "erro" && (
         <p className="alert alert-error" style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <span style={{ flex: 1 }}>{rfi.erro_extracao}</span>
+          <span style={{ flex: 1 }}>{traduzirMensagemServidor(rfi.erro_extracao, lang)}</span>
           <button
             type="button"
             className="btn-icon"
@@ -248,7 +276,7 @@ export function RfiDetail() {
         <p className="alert alert-warning" style={{ whiteSpace: "pre-line" }}>
           {t("rfiDetail.avisoExtracao")}
           {"\n"}
-          {rfi.erro_extracao}
+          {traduzirMensagemServidor(rfi.erro_extracao, lang)}
         </p>
       )}
       {extraindo && (
@@ -298,10 +326,10 @@ export function RfiDetail() {
 
       {rfi.status_extracao === "pronto" && rfi.total_itens > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-          <a href={api.urlExportarRfi(rfi.id)} target="_blank" rel="noreferrer" className="btn btn-secondary">
+          <a href={api.urlExportarRfi(rfi.id, lang)} target="_blank" rel="noreferrer" className="btn btn-secondary">
             {t("rfiDetail.exportarHtml")}
           </a>
-          <a href={api.urlExportarRfiXlsx(rfi.id)} download className="btn btn-secondary">
+          <a href={api.urlExportarRfiXlsx(rfi.id, lang)} download className="btn btn-secondary">
             {t("rfiDetail.exportarXlsx")}
           </a>
         </div>
@@ -326,6 +354,8 @@ export function RfiDetail() {
         </div>
       ))}
 
+      <FontesRfiTable itens={rfi.itens} />
+
       <DangerZone
         tipo="rfis"
         id={rfi.id}
@@ -349,14 +379,17 @@ function RfiDocumentos({
   bloqueado: boolean;
   onMudou: () => void;
 }) {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const [enviando, setEnviando] = useState(false);
   const ocupado = enviando || bloqueado; // enquanto o RFI processa, a API recusa mudanças (409)
   const [erro, setErro] = useState<string | null>(null);
   const [incluirManuais, setIncluirManuais] = useState(false);
   // Arquivos escolhidos mas ainda não enviados: dá pra juntar vários (em várias seleções) e só
   // então disparar a extração, em vez de subir no instante em que o primeiro lote é escolhido.
-  const [pendentes, setPendentes] = useState<File[]>([]);
+  // Arquivos escolhidos e ainda não enviados ficam na memória ao sair da tela e voltar (só somem ao recarregar a página).
+  const [pendentes, setPendentes] = useRascunhoState<File[]>(`rfi-pendentes-${rfi.id}`, []);
+  const [progresso, setProgresso] = useState(0);
+  useAvisoAoSair(pendentes.length > 0 && !enviando);
 
   async function executar(acao: () => Promise<unknown>) {
     setEnviando(true);
@@ -374,8 +407,9 @@ function RfiDocumentos({
   function enviar() {
     const form = new FormData();
     pendentes.forEach((a) => form.append("arquivos", a));
+    setProgresso(0);
     void executar(async () => {
-      await api.adicionarDocumentosRfi(rfi.id, form, lang);
+      await api.adicionarDocumentosRfi(rfi.id, form, setProgresso);
       setPendentes([]);
     });
   }
@@ -395,6 +429,9 @@ function RfiDocumentos({
           <li key={doc.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "4px 0" }}>
             <span style={{ flex: 1 }}>{doc.nome_arquivo}</span>
             <span className="muted">{t("rfiDetail.itensDoDocumento").replace("{n}", String(doc.total_itens))}</span>
+            <a href={api.urlDocumentoRfi(rfi.id, doc.id)} download className="btn btn-secondary">
+              {t("rfiDetail.baixarDocumento")}
+            </a>
             <button type="button" className="btn btn-secondary" disabled={ocupado} onClick={() => remover(doc)}>
               {t("rfiDetail.removerDocumento")}
             </button>
@@ -409,7 +446,9 @@ function RfiDocumentos({
         selectLabel={t("rfiDetail.selecionarArquivos")}
         removeLabel={t("rfiDetail.removerDocumento")}
         newBadgeLabel={t("rfiDetail.novo")}
+        pendingHint={t("common.arquivosNaoEnviados")}
       />
+      {enviando && pendentes.length > 0 && <ProgressoEnvio pct={progresso} />}
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
         {pendentes.length > 0 && (
           <button type="button" className="btn btn-primary" disabled={ocupado} onClick={enviar}>
@@ -422,7 +461,7 @@ function RfiDocumentos({
           type="button"
           className="btn btn-secondary"
           disabled={ocupado || rfi.total_itens === 0}
-          onClick={() => void executar(() => api.reavaliarRfi(rfi.id, incluirManuais, lang))}
+          onClick={() => void executar(() => api.reavaliarRfi(rfi.id, incluirManuais))}
         >
           {t("rfiDetail.reavaliarTudo")}
         </button>
@@ -431,7 +470,7 @@ function RfiDocumentos({
             type="button"
             className="btn btn-secondary"
             disabled={ocupado}
-            onClick={() => void executar(() => api.reavaliarRfi(rfi.id, false, lang, true))}
+            onClick={() => void executar(() => api.reavaliarRfi(rfi.id, false, true))}
           >
             {t("rfiDetail.avaliarPendentes").replace("{n}", String(rfi.total_itens - rfi.itens_avaliados))}
           </button>
@@ -534,7 +573,11 @@ function RfiItemRow({
           {!item.veredito && (
             <p style={{ marginTop: 0 }}>{item.etapa ? t(`rfiItemRow.etapa.${item.etapa}`) : t("rfiItemRow.etapa.fila")}</p>
           )}
-          {item.justificativa && <p className="muted" style={{ marginTop: 0 }}>{item.justificativa}</p>}
+          {item.justificativa && (
+            <p className="muted" style={{ marginTop: 0 }}>
+              {traduzirMensagemServidor(item.justificativa, lang)}
+            </p>
+          )}
           {erroReavaliar && <p className="alert alert-error" style={{ marginTop: 0 }}>{erroReavaliar}</p>}
           {item.procedimento_id && (
             <p style={{ marginTop: 0 }}>
@@ -549,19 +592,7 @@ function RfiItemRow({
               <span className="badge badge-muted">{t("rfiItemRow.confirmadoHistorico")}</span>
             </p>
           )}
-          {item.fontes.length > 0 && (
-            <p style={{ marginTop: 0 }}>
-              {item.procedimento_id && <span className="muted">{t("rfiItemRow.fontesComplementares")} </span>}
-              {item.fontes.map((f, i) => (
-                <span key={i}>
-                  <a href={f.url} target="_blank" rel="noreferrer">
-                    {f.titulo}
-                  </a>
-                  {i < item.fontes.length - 1 ? ", " : ""}
-                </span>
-              ))}
-            </p>
-          )}
+          {item.fontes.length > 0 && <FontesItemTable fontes={item.fontes} complementares={!!item.procedimento_id} />}
 
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-secondary" onClick={reavaliar} disabled={reavaliando} type="button">

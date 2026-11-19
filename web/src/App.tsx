@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { api, User } from "./api";
 import { AuthProvider } from "./auth";
 import { LanguageProvider } from "./i18n";
@@ -21,9 +21,16 @@ import { RfiUpload } from "./features/rfi/pages/RfiUpload";
 import { RfiDetail } from "./features/rfi/pages/RfiDetail";
 import { Licitacoes } from "./features/licitacoes/pages/Licitacoes";
 
+// Redireciona um caminho antigo (em português) para o novo mantendo ?query e #hash: links como /planejar?open=<id>&readonly=1
+// ou ?import=doc carregam a ação pedida, e perdê-los abriria o planejador numa etapa qualquer.
+function Redirecionar({ para }: { para: string }) {
+  const { search, hash } = useLocation();
+  return <Navigate to={`${para}${search}${hash}`} replace />;
+}
+
 function LegacyProcedimentoRedirect() {
   const { id } = useParams<{ id: string }>();
-  return <Navigate to={`/procedures/${id}`} replace />;
+  return <Redirecionar para={`/procedures/${id}`} />;
 }
 
 export function App() {
@@ -51,8 +58,8 @@ export function App() {
               <Route index element={<Home />} />
               <Route path="plan" element={<PlanPoc />} />
               <Route path="procedures" element={<Procedimentos />} />
-              <Route path="procedures/new" element={<ProcedimentoUpload />} />
               <Route path="procedures/import-json" element={<ProcedimentoImportarJson />} />
+              <Route path="procedures/new" element={<ProcedimentoUpload />} />
               <Route path="procedures/:id" element={<ProcedimentoView />} />
               <Route path="pocs" element={<Pocs />} />
               <Route path="pocs/new" element={<PocUpload />} />
@@ -64,15 +71,15 @@ export function App() {
               <Route path="users" element={<Usuarios />} />
               <Route path="my-account" element={<MinhaConta user={user} onUserAtualizado={setUser} />} />
               {/* Legacy pt-BR paths redirect to their English equivalents (v2 rename, item 2.2). */}
-              <Route path="planejar" element={<Navigate to="/plan" replace />} />
-              <Route path="procedimentos" element={<Navigate to="/procedures" replace />} />
-              <Route path="procedimentos/novo" element={<Navigate to="/procedures/new" replace />} />
+              <Route path="planejar" element={<Redirecionar para="/plan" />} />
+              <Route path="procedimentos" element={<Redirecionar para="/procedures" />} />
+              <Route path="procedimentos/novo" element={<Redirecionar para="/procedures/new" />} />
               <Route path="procedimentos/:id" element={<LegacyProcedimentoRedirect />} />
-              <Route path="pocs/novo" element={<Navigate to="/pocs/new" replace />} />
-              <Route path="rfis/novo" element={<Navigate to="/rfis/new" replace />} />
-              <Route path="licitacoes" element={<Navigate to="/tenders" replace />} />
-              <Route path="usuarios" element={<Navigate to="/users" replace />} />
-              <Route path="minha-conta" element={<Navigate to="/my-account" replace />} />
+              <Route path="pocs/novo" element={<Redirecionar para="/pocs/new" />} />
+              <Route path="rfis/novo" element={<Redirecionar para="/rfis/new" />} />
+              <Route path="licitacoes" element={<Redirecionar para="/tenders" />} />
+              <Route path="usuarios" element={<Redirecionar para="/users" />} />
+              <Route path="minha-conta" element={<Redirecionar para="/my-account" />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
